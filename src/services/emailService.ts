@@ -31,8 +31,33 @@ function getTransporter(): Transporter {
   return transporter;
 }
 
+function logDevEmail(opts: EmailOptions): void {
+  if (env.NODE_ENV !== "development") return;
+
+  const to = Array.isArray(opts.to) ? opts.to.join(", ") : opts.to;
+  const from = opts.from ?? env.SMTP_FROM;
+  const resetUrlMatch = opts.html.match(/https?:\/\/[^\s"']*\/reset-password\?token=[^\s"']+/);
+  const resetUrl = resetUrlMatch?.[0];
+
+  logger.info("[DEV EMAIL]", {
+    to,
+    from,
+    subject: opts.subject,
+    resetUrl,
+  });
+
+  if (resetUrl) {
+    // This is the most useful thing to copy during local testing
+    // and avoids dumping the whole HTML template into the console.
+    // eslint-disable-next-line no-console
+    console.log(`[DEV EMAIL] Password reset link: ${resetUrl}`);
+  }
+}
+
 export async function sendEmail(opts: EmailOptions): Promise<boolean> {
   const { to, subject, html, text, from = env.SMTP_FROM } = opts;
+
+  logDevEmail(opts);
 
   if (!env.SMTP_USER || !env.SMTP_PASS) {
     fileLogger.info("system", "Email would be sent (SMTP not configured)", {

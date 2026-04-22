@@ -1,0 +1,7 @@
+{
+  "watch": ["src", "prisma"],
+  "ext": "ts,json",
+  "ignore": ["logs/**", "dist/**", "node_modules/**"],
+  "exec": "ts-node src/server.ts"
+}
+

@@ -59,7 +59,7 @@ export async function loginService(
       email,
       ipAddress,
     });
-    throw new Error("Invalid email or password");
+    throw new Error("Invalid email or password, please try again");
   }
 
   // Check lockout
@@ -73,7 +73,7 @@ export async function loginService(
   }
 
   if (!user.isActive) {
-    throw new Error("Account is disabled. Please contact your administrator.");
+    throw new Error("Account is disabled. Contact your system administrator.");
   }
 
   const passwordMatch = await comparePassword(password, user.password);
@@ -266,6 +266,11 @@ export async function forgotPasswordService(
 
   const resetUrl = `${env.FRONTEND_URL}/reset-password?token=${token}`;
   const html = buildPasswordResetEmail(resetUrl, user.firstName);
+
+  if (env.NODE_ENV === "development") {
+    // eslint-disable-next-line no-console
+    console.log(`[DEV EMAIL] Password reset link for ${user.email}: ${resetUrl}`);
+  }
 
   // Enqueue email (non-blocking)
   const queued = await addJob(
