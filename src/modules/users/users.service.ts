@@ -13,6 +13,8 @@ const USER_SELECT = {
   avatarUrl: true,
   isActive: true,
   lastLoginAt: true,
+  failedLogins: true,
+  lockedUntil: true,
   createdAt: true,
   updatedAt: true,
   roles: {
