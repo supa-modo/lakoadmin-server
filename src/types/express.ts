@@ -12,4 +12,5 @@ export interface AuthUser {
 export interface AuthRequest extends Request {
   user?: AuthUser;
   requestId?: string;
+  file?: Express.Multer.File;
 }

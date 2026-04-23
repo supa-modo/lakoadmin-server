@@ -34,13 +34,30 @@ const PERMISSIONS = [
   { name: 'leads.create', module: 'leads', action: 'create', description: 'Create leads' },
   { name: 'leads.update', module: 'leads', action: 'update', description: 'Update leads' },
   { name: 'leads.delete', module: 'leads', action: 'delete', description: 'Delete leads' },
+  { name: 'leads.assign', module: 'leads', action: 'assign', description: 'Assign leads to users' },
   { name: 'leads.convert', module: 'leads', action: 'convert', description: 'Convert leads to clients' },
+  { name: 'leads.import', module: 'leads', action: 'import', description: 'Import leads from CSV' },
 
   // Clients
   { name: 'clients.read', module: 'clients', action: 'read', description: 'View clients' },
   { name: 'clients.create', module: 'clients', action: 'create', description: 'Create clients' },
   { name: 'clients.update', module: 'clients', action: 'update', description: 'Update clients' },
   { name: 'clients.delete', module: 'clients', action: 'delete', description: 'Delete clients' },
+  { name: 'clients.merge', module: 'clients', action: 'merge', description: 'Merge duplicate clients' },
+
+  // Tasks
+  { name: 'tasks.read', module: 'tasks', action: 'read', description: 'View tasks' },
+  { name: 'tasks.create', module: 'tasks', action: 'create', description: 'Create tasks' },
+  { name: 'tasks.update', module: 'tasks', action: 'update', description: 'Update tasks' },
+  { name: 'tasks.delete', module: 'tasks', action: 'delete', description: 'Delete tasks' },
+  { name: 'tasks.complete', module: 'tasks', action: 'complete', description: 'Complete tasks' },
+
+  // Onboarding
+  { name: 'onboarding.read', module: 'onboarding', action: 'read', description: 'View onboarding cases' },
+  { name: 'onboarding.create', module: 'onboarding', action: 'create', description: 'Create onboarding cases' },
+  { name: 'onboarding.update', module: 'onboarding', action: 'update', description: 'Update onboarding cases' },
+  { name: 'onboarding.approve', module: 'onboarding', action: 'approve', description: 'Approve onboarding cases' },
+  { name: 'onboarding.reject', module: 'onboarding', action: 'reject', description: 'Reject onboarding cases' },
 
   // Insurers
   { name: 'insurers.read', module: 'insurers', action: 'read', description: 'View insurers' },
@@ -140,6 +157,8 @@ const ROLES: Record<string, {
     permissions: [
       'leads.read', 'leads.create', 'leads.update', 'leads.convert',
       'clients.read', 'clients.create', 'clients.update',
+      'tasks.read', 'tasks.create', 'tasks.update', 'tasks.complete',
+      'onboarding.read', 'onboarding.create', 'onboarding.update',
       'policies.read', 'policies.create',
       'insurers.read', 'products.read',
       'documents.read', 'documents.create',
@@ -151,8 +170,10 @@ const ROLES: Record<string, {
     description: 'Manage client relationships and policies',
     isSystem: false,
     permissions: [
-      'leads.read', 'leads.create', 'leads.update', 'leads.convert',
+      'leads.read', 'leads.create', 'leads.update', 'leads.assign', 'leads.convert',
       'clients.read', 'clients.create', 'clients.update',
+      'tasks.read', 'tasks.create', 'tasks.update', 'tasks.complete',
+      'onboarding.read', 'onboarding.create', 'onboarding.update',
       'policies.read', 'policies.create', 'policies.update',
       'insurers.read', 'products.read',
       'claims.read',
@@ -168,6 +189,7 @@ const ROLES: Record<string, {
     permissions: [
       'clients.read',
       'policies.read',
+      'tasks.read', 'tasks.create', 'tasks.update', 'tasks.complete',
       'claims.read', 'claims.create', 'claims.update', 'claims.approve',
       'documents.read', 'documents.create',
       'reports.read',
@@ -206,7 +228,9 @@ const ROLES: Record<string, {
     description: 'Operations oversight across all modules',
     isSystem: false,
     permissions: [
-      'leads.read', 'clients.read',
+      'leads.read', 'leads.assign', 'clients.read',
+      'tasks.read', 'tasks.update',
+      'onboarding.read', 'onboarding.approve', 'onboarding.reject',
       'insurers.read', 'products.read',
       'policies.read', 'policies.update',
       'claims.read', 'claims.update',

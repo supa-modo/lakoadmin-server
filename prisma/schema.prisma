@@ -291,13 +291,13 @@ enum ApprovalStatus {
 // ─────────────────────────────────────────────────────────
 
 model User {
-  id                String    @id @default(uuid())
-  email             String    @unique
-  password          String
-  firstName         String
-  lastName          String
-  phone             String?
-  avatarUrl         String?
+  id        String  @id @default(uuid())
+  email     String  @unique
+  password  String
+  firstName String
+  lastName  String
+  phone     String?
+  avatarUrl String?
 
   isActive          Boolean   @default(true)
   failedLogins      Int       @default(0)
@@ -311,21 +311,22 @@ model User {
   resetPasswordExpires DateTime?
 
   // Refresh tokens (stored as JSON array of token hashes)
-  refreshTokens        String[]
+  refreshTokens String[]
 
   // Relations
-  roles           UserRole[]
-  agent           Agent?
+  roles UserRole[]
+  agent Agent?
 
   // Audit relations (as actor)
-  auditLogs       AuditLog[]
-  createdLeads    Lead[]         @relation("LeadCreator")
-  assignedLeads   Lead[]         @relation("LeadAssignment")
-  managedClients  Client[]       @relation("ClientManager")
-  ownedClaims     Claim[]        @relation("ClaimOwner")
-  assignedTasks   Task[]         @relation("TaskAssignment")
-  createdTasks    Task[]         @relation("TaskCreator")
-  notifications   Notification[]
+  auditLogs      AuditLog[]
+  createdLeads   Lead[]         @relation("LeadCreator")
+  assignedLeads  Lead[]         @relation("LeadAssignment")
+  managedClients Client[]       @relation("ClientManager")
+  ownedClaims    Claim[]        @relation("ClaimOwner")
+  assignedTasks  Task[]         @relation("TaskAssignment")
+  createdTasks   Task[]         @relation("TaskCreator")
+  taskActivities TaskActivity[]
+  notifications  Notification[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -337,11 +338,11 @@ model User {
 }
 
 model Role {
-  id          String   @id @default(uuid())
-  name        String   @unique
+  id          String  @id @default(uuid())
+  name        String  @unique
   displayName String
   description String?
-  isSystem    Boolean  @default(false)
+  isSystem    Boolean @default(false)
 
   permissions RolePermission[]
   users       UserRole[]
@@ -353,8 +354,8 @@ model Role {
 }
 
 model Permission {
-  id          String   @id @default(uuid())
-  name        String   @unique
+  id          String  @id @default(uuid())
+  name        String  @unique
   module      String
   action      String
   description String?
@@ -452,14 +453,14 @@ model Lead {
   assignedToId String?
   assignedTo   User?   @relation("LeadAssignment", fields: [assignedToId], references: [id], onDelete: SetNull)
 
-  convertedToClientId String? @unique
-  convertedToClient   Client? @relation(fields: [convertedToClientId], references: [id])
+  convertedToClientId String?   @unique
+  convertedToClient   Client?   @relation(fields: [convertedToClientId], references: [id])
   convertedAt         DateTime?
 
   lostReason String?
   lostAt     DateTime?
 
-  notes       String?
+  notes        String?
   nextFollowUp DateTime?
 
   activities LeadActivity[]
@@ -503,12 +504,12 @@ model Client {
   clientNumber String     @unique
   type         ClientType
 
-  firstName         String?
-  lastName          String?
-  dateOfBirth       DateTime?
-  gender            String?
-  nationalId        String?
-  passportNumber    String?
+  firstName      String?
+  lastName       String?
+  dateOfBirth    DateTime?
+  gender         String?
+  nationalId     String?
+  passportNumber String?
 
   companyName        String?
   registrationNumber String?
@@ -657,9 +658,12 @@ model Task {
 
   title       String
   description String?
+  category    String?
   dueDate     DateTime?
   priority    TaskPriority @default(NORMAL)
   status      TaskStatus   @default(PENDING)
+
+  activities TaskActivity[]
 
   leadId String?
   lead   Lead?   @relation("LeadTasks", fields: [leadId], references: [id], onDelete: Cascade)
@@ -698,6 +702,26 @@ model Task {
   @@map("tasks")
 }
 
+model TaskActivity {
+  id     String @id @default(uuid())
+  taskId String
+
+  type        String
+  description String
+  metadata    Json?
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+  @@index([createdById])
+  @@map("task_activities")
+}
+
 // ─────────────────────────────────────────────────────────
 // PRODUCT CATALOG MODELS
 // ─────────────────────────────────────────────────────────
@@ -710,10 +734,10 @@ model Insurer {
   registrationNumber String?
   iraLicenseNumber   String?
 
-  address  String?
-  phone    String?
-  email    String?
-  website  String?
+  address String?
+  phone   String?
+  email   String?
+  website String?
 
   bankName          String?
   bankBranch        String?
@@ -765,7 +789,7 @@ model Product {
   insurerId String
   insurer   Insurer @relation(fields: [insurerId], references: [id])
 
-  code        String        @unique
+  code        String  @unique
   name        String
   category    String
   subcategory String?
@@ -869,8 +893,8 @@ model Policy {
   policyNumber        String  @unique
   insurerPolicyNumber String?
 
-  clientId  String
-  client    Client  @relation(fields: [clientId], references: [id])
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
 
   productId String
   product   Product @relation(fields: [productId], references: [id])
@@ -886,16 +910,16 @@ model Policy {
 
   sumInsured Decimal? @db.Decimal(15, 2)
 
-  basePremium    Decimal @db.Decimal(15, 2)
-  trainingLevy   Decimal @db.Decimal(15, 2) @default(0)
-  pcifLevy       Decimal @db.Decimal(15, 2) @default(0)
-  stampDuty      Decimal @db.Decimal(15, 2) @default(0)
-  policyFee      Decimal @db.Decimal(15, 2) @default(0)
-  totalPremium   Decimal @db.Decimal(15, 2)
+  basePremium  Decimal @db.Decimal(15, 2)
+  trainingLevy Decimal @default(0) @db.Decimal(15, 2)
+  pcifLevy     Decimal @default(0) @db.Decimal(15, 2)
+  stampDuty    Decimal @default(0) @db.Decimal(15, 2)
+  policyFee    Decimal @default(0) @db.Decimal(15, 2)
+  totalPremium Decimal @db.Decimal(15, 2)
 
-  paymentFrequency  PaymentFrequency   @default(ANNUAL)
-  paidAmount        Decimal            @db.Decimal(15, 2) @default(0)
-  outstandingAmount Decimal            @db.Decimal(15, 2)
+  paymentFrequency  PaymentFrequency @default(ANNUAL)
+  paidAmount        Decimal          @default(0) @db.Decimal(15, 2)
+  outstandingAmount Decimal          @db.Decimal(15, 2)
 
   status             PolicyStatus       @default(DRAFT)
   underwritingStatus UnderwritingStatus @default(PENDING)
@@ -944,17 +968,17 @@ model PolicyMember {
   id       String @id @default(uuid())
   policyId String
 
-  name            String
-  dateOfBirth     DateTime?
-  gender          String?
-  idNumber        String?
-  relationship    String
+  name         String
+  dateOfBirth  DateTime?
+  gender       String?
+  idNumber     String?
+  relationship String
 
   coverageLevel   String?
   effectiveDate   DateTime
   terminationDate DateTime?
 
-  status        String  @default("ACTIVE")
+  status String @default("ACTIVE")
 
   premiumAmount Decimal? @db.Decimal(15, 2)
 
@@ -969,8 +993,8 @@ model PolicyMember {
 }
 
 model PolicyEndorsement {
-  id              String @id @default(uuid())
-  policyId        String
+  id                String @id @default(uuid())
+  policyId          String
   endorsementNumber String
 
   type          EndorsementType
@@ -1065,9 +1089,9 @@ model Claim {
   claimantEmail        String?
   claimantRelationship String?
 
-  dateOfLoss      DateTime
-  dateReported    DateTime
-  dateRegistered  DateTime      @default(now())
+  dateOfLoss     DateTime
+  dateReported   DateTime
+  dateRegistered DateTime @default(now())
 
   lossType        String
   lossDescription String
@@ -1083,8 +1107,8 @@ model Claim {
   ownerId String?
   owner   User?   @relation("ClaimOwner", fields: [ownerId], references: [id], onDelete: SetNull)
 
-  priority  ClaimPriority @default(NORMAL)
-  fraudFlag Boolean       @default(false)
+  priority   ClaimPriority @default(NORMAL)
+  fraudFlag  Boolean       @default(false)
   fraudNotes String?
 
   rejectionReason   String?
@@ -1191,7 +1215,7 @@ model Payment {
   receivedDate DateTime @default(now())
 
   bankAccountId String?
-  bankAccount   BankAccount?  @relation(fields: [bankAccountId], references: [id])
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
 
   mpesaAccountId String?
   mpesaAccount   MpesaAccount? @relation(fields: [mpesaAccountId], references: [id])
@@ -1258,7 +1282,7 @@ model Receipt {
   clientName    String
   clientAddress String?
 
-  amount       Decimal @db.Decimal(15, 2)
+  amount        Decimal @db.Decimal(15, 2)
   amountInWords String
 
   particulars String
@@ -1285,12 +1309,12 @@ model Invoice {
   dueDate     DateTime
 
   subtotal    Decimal @db.Decimal(15, 2)
-  taxAmount   Decimal @db.Decimal(15, 2) @default(0)
+  taxAmount   Decimal @default(0) @db.Decimal(15, 2)
   totalAmount Decimal @db.Decimal(15, 2)
 
   status InvoiceStatus @default(DRAFT)
 
-  paidAmount Decimal @db.Decimal(15, 2) @default(0)
+  paidAmount Decimal @default(0) @db.Decimal(15, 2)
   balanceDue Decimal @db.Decimal(15, 2)
 
   paymentTerms String?
@@ -1318,7 +1342,7 @@ model InvoiceLine {
   invoiceId String
 
   description String
-  quantity    Int    @default(1)
+  quantity    Int     @default(1)
   unitPrice   Decimal @db.Decimal(15, 2)
   amount      Decimal @db.Decimal(15, 2)
 
@@ -1362,9 +1386,9 @@ model Agent {
 
   status AgentStatus @default(ACTIVE)
 
-  managerId  String?
-  manager    Agent?  @relation("AgentHierarchy", fields: [managerId], references: [id])
-  reportees  Agent[] @relation("AgentHierarchy")
+  managerId String?
+  manager   Agent?  @relation("AgentHierarchy", fields: [managerId], references: [id])
+  reportees Agent[] @relation("AgentHierarchy")
 
   userId String? @unique
   user   User?   @relation(fields: [userId], references: [id])
@@ -1403,8 +1427,8 @@ model CommissionEntry {
   commissionRate  Decimal @db.Decimal(5, 4)
   grossCommission Decimal @db.Decimal(15, 2)
 
-  withholdingTax  Decimal @db.Decimal(15, 2) @default(0)
-  otherDeductions Decimal @db.Decimal(15, 2) @default(0)
+  withholdingTax  Decimal @default(0) @db.Decimal(15, 2)
+  otherDeductions Decimal @default(0) @db.Decimal(15, 2)
   netCommission   Decimal @db.Decimal(15, 2)
 
   commissionType CommissionType
@@ -1457,7 +1481,7 @@ model LedgerAccount {
   isActive        Boolean @default(true)
   isSystemAccount Boolean @default(false)
 
-  currentBalance Decimal @db.Decimal(15, 2) @default(0)
+  currentBalance Decimal @default(0) @db.Decimal(15, 2)
 
   entries JournalEntryLine[]
 
@@ -1495,7 +1519,7 @@ model JournalEntry {
   postedById String?
   postedAt   DateTime?
 
-  reversedEntryId String?      @unique
+  reversedEntryId String?       @unique
   reversedEntry   JournalEntry? @relation("JournalReversal", fields: [reversedEntryId], references: [id])
   reversalOf      JournalEntry? @relation("JournalReversal")
 
@@ -1524,8 +1548,8 @@ model JournalEntryLine {
   accountId String
   account   LedgerAccount @relation(fields: [accountId], references: [id])
 
-  debit  Decimal @db.Decimal(15, 2) @default(0)
-  credit Decimal @db.Decimal(15, 2) @default(0)
+  debit  Decimal @default(0) @db.Decimal(15, 2)
+  credit Decimal @default(0) @db.Decimal(15, 2)
 
   description String?
 
@@ -1547,7 +1571,7 @@ model BankAccount {
   bankName      String
   branchName    String?
   swiftCode     String?
-  currency      String @default("KES")
+  currency      String  @default("KES")
 
   accountType String
 
@@ -1599,8 +1623,8 @@ model MpesaAccount {
 model StatementUpload {
   id String @id @default(uuid())
 
-  bankAccountId  String?
-  bankAccount    BankAccount?  @relation(fields: [bankAccountId], references: [id])
+  bankAccountId String?
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
 
   mpesaAccountId String?
   mpesaAccount   MpesaAccount? @relation(fields: [mpesaAccountId], references: [id])
@@ -1646,9 +1670,9 @@ model ReconciliationItem {
   valueDate       DateTime?
   description     String
   reference       String?
-  amount          Decimal @db.Decimal(15, 2)
+  amount          Decimal   @db.Decimal(15, 2)
   isDebit         Boolean
-  runningBalance  Decimal? @db.Decimal(15, 2)
+  runningBalance  Decimal?  @db.Decimal(15, 2)
 
   matchedPaymentId String?
   matchStatus      MatchStatus @default(UNMATCHED)
