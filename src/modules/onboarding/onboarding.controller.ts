@@ -9,6 +9,8 @@ import {
   submitOnboarding,
   approveOnboarding,
   rejectOnboarding,
+  startClientOnboarding,
+  createPolicyFromOnboardingCase,
 } from './onboarding.service';
 import { sendSuccess, sendCreated, sendError, buildPaginationMeta, sendPaginated } from '../../utils/apiResponse';
 import { AuthRequest } from '../../types/express';
@@ -150,6 +152,52 @@ export async function rejectOnboardingHandler(req: AuthRequest, res: Response, n
       sendError(res, 'Onboarding case not found', 404);
     } else if ((err as Error).message === 'Only cases under review can be rejected') {
       sendError(res, 'Only cases under review can be rejected', 400);
+    } else {
+      next(err);
+    }
+  }
+}
+
+export async function startClientOnboardingHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const onboardingCase = await startClientOnboarding(req.params.clientId, req.body, req.user?.id);
+    logAudit(req, 'CREATE', 'OnboardingCase', onboardingCase.id, null, {
+      id: onboardingCase.id,
+      caseNumber: onboardingCase.caseNumber,
+      clientId: req.params.clientId,
+      guided: true,
+    });
+    sendCreated(res, onboardingCase, 'Onboarding started successfully');
+  } catch (err) {
+    if ((err as Error).message === 'Client not found') {
+      sendError(res, 'Client not found', 404);
+    } else if ((err as Error).message === 'Client already has an active onboarding case') {
+      sendError(res, 'Client already has an active onboarding case', 409);
+    } else {
+      next(err);
+    }
+  }
+}
+
+export async function createPolicyFromOnboardingHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const result = await createPolicyFromOnboardingCase(req.params.id, req.body, req.user?.id);
+    logAudit(req, 'CREATE', 'Policy', result.policy.id, null, {
+      policyNumber: result.policy.policyNumber,
+      onboardingCaseId: req.params.id,
+      underwriterTaskId: result.underwriterTask?.id,
+    });
+    sendCreated(res, result, 'Policy created from onboarding case');
+  } catch (err) {
+    const message = (err as Error).message;
+    if (message === 'Onboarding case not found') {
+      sendError(res, message, 404);
+    } else if (
+      message.includes('must be selected') ||
+      message.includes('sufficiently complete') ||
+      message.includes('Base premium')
+    ) {
+      sendError(res, message, 400);
     } else {
       next(err);
     }

@@ -36,7 +36,8 @@ export const env = {
 
   JWT_ACCESS_SECRET: required("JWT_ACCESS_SECRET"),
   JWT_REFRESH_SECRET: required("JWT_REFRESH_SECRET"),
-  JWT_ACCESS_EXPIRES_IN: optional("JWT_ACCESS_EXPIRES_IN", "15m"),
+  // Keep sessions stable for typical workday blocks.
+  JWT_ACCESS_EXPIRES_IN: optional("JWT_ACCESS_EXPIRES_IN", "6h"),
   JWT_REFRESH_EXPIRES_IN: optional("JWT_REFRESH_EXPIRES_IN", "7d"),
 
   MAX_LOGIN_ATTEMPTS: optionalNumber("MAX_LOGIN_ATTEMPTS", 5),

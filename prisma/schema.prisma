@@ -66,6 +66,46 @@ enum TaskPriority {
   URGENT
 }
 
+enum InsuranceClass {
+  // Motor
+  MOTOR_PRIVATE
+  MOTOR_COMMERCIAL
+  MOTOR_CYCLE
+  // Medical & Life
+  MEDICAL_INPATIENT
+  MEDICAL_OUTPATIENT
+  MEDICAL_COMPREHENSIVE
+  LIFE_ORDINARY
+  GROUP_LIFE
+  CREDIT_LIFE
+  PENSION
+  // Property & Fire
+  FIRE_DOMESTIC
+  FIRE_INDUSTRIAL
+  ENGINEERING
+  // Marine & Aviation
+  MARINE_CARGO
+  MARINE_HULL
+  AVIATION
+  // Personal
+  PERSONAL_ACCIDENT
+  TRAVEL
+  // Liability
+  WORKMEN_COMPENSATION
+  EMPLOYER_LIABILITY
+  PUBLIC_LIABILITY
+  PROFESSIONAL_INDEMNITY
+  DIRECTORS_LIABILITY
+  // Financial
+  BURGLARY
+  FIDELITY_GUARANTEE
+  MONEY
+  // Other
+  AGRICULTURE
+  MICRO_INSURANCE
+  OTHER
+}
+
 enum ProductStatus {
   ACTIVE
   INACTIVE
@@ -164,6 +204,8 @@ enum PaymentStatus {
   PENDING
   VERIFIED
   ALLOCATED
+  COMPLETED
+  FAILED
   REVERSED
   REFUNDED
 }
@@ -326,6 +368,7 @@ model User {
   assignedTasks  Task[]         @relation("TaskAssignment")
   createdTasks   Task[]         @relation("TaskCreator")
   taskActivities TaskActivity[]
+  leadActivities LeadActivity[]
   notifications  Notification[]
 
   createdAt DateTime  @default(now())
@@ -463,8 +506,10 @@ model Lead {
   notes        String?
   nextFollowUp DateTime?
 
-  activities LeadActivity[]
-  tasks      Task[]         @relation("LeadTasks")
+  activities      LeadActivity[]
+  tasks           Task[]           @relation("LeadTasks")
+  onboardingCases OnboardingCase[] @relation("LeadOnboardingCases")
+  sourcedPolicies Policy[]         @relation("LeadSourcedPolicies")
 
   createdById String?
   createdBy   User?   @relation("LeadCreator", fields: [createdById], references: [id], onDelete: SetNull)
@@ -489,6 +534,7 @@ model LeadActivity {
   metadata    Json?
 
   userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
@@ -496,6 +542,7 @@ model LeadActivity {
 
   @@index([leadId])
   @@index([createdAt])
+  @@index([userId])
   @@map("lead_activities")
 }
 
@@ -600,8 +647,21 @@ model OnboardingCase {
   clientId String
   client   Client @relation(fields: [clientId], references: [id])
 
+  leadId String?
+  lead   Lead?   @relation("LeadOnboardingCases", fields: [leadId], references: [id], onDelete: SetNull)
+
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  insurerId String?
+  insurer   Insurer? @relation(fields: [insurerId], references: [id], onDelete: SetNull)
+
   clientType ClientType
   status     OnboardingStatus @default(DRAFT)
+
+  premiumEstimate Decimal? @db.Decimal(15, 2)
+  riskDetails     Json?
+  memberData      Json?
 
   reviewerId  String?
   reviewNotes String?
@@ -614,6 +674,8 @@ model OnboardingCase {
   rejectionReason String?
 
   documents OnboardingDocument[]
+  policies  Policy[]
+  tasks     Task[]               @relation("OnboardingCaseTasks")
 
   createdById String?
 
@@ -621,6 +683,9 @@ model OnboardingCase {
   updatedAt DateTime @updatedAt
 
   @@index([clientId])
+  @@index([leadId])
+  @@index([productId])
+  @@index([insurerId])
   @@index([status])
   @@map("onboarding_cases")
 }
@@ -671,6 +736,9 @@ model Task {
   clientId String?
   client   Client? @relation("ClientTasks", fields: [clientId], references: [id], onDelete: Cascade)
 
+  onboardingCaseId String?
+  onboardingCase   OnboardingCase? @relation("OnboardingCaseTasks", fields: [onboardingCaseId], references: [id], onDelete: Cascade)
+
   policyId String?
   policy   Policy? @relation("PolicyTasks", fields: [policyId], references: [id], onDelete: Cascade)
 
@@ -697,6 +765,7 @@ model Task {
   @@index([dueDate])
   @@index([leadId])
   @@index([clientId])
+  @@index([onboardingCaseId])
   @@index([policyId])
   @@index([claimId])
   @@map("tasks")
@@ -734,7 +803,11 @@ model Insurer {
   registrationNumber String?
   iraLicenseNumber   String?
 
+  logoUrl String?
+
   address String?
+  county  String?
+  country String? @default("Kenya")
   phone   String?
   email   String?
   website String?
@@ -745,6 +818,8 @@ model Insurer {
   bankAccountNumber String?
   bankSwiftCode     String?
 
+  iraClassifications InsuranceClass[]
+
   status String @default("ACTIVE")
 
   notes String?
@@ -752,12 +827,18 @@ model Insurer {
   contacts        InsurerContact[]
   products        Product[]
   policies        Policy[]
+  onboardingCases OnboardingCase[]
   commissionRules CommissionRule[]
+
+  createdById String?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
+  Invoice   Invoice[]
 
+  @@index([status])
+  @@index([iraLicenseNumber])
   @@map("insurers")
 }
 
@@ -789,31 +870,46 @@ model Product {
   insurerId String
   insurer   Insurer @relation(fields: [insurerId], references: [id])
 
-  code        String  @unique
-  name        String
-  category    String
-  subcategory String?
-  description String?
+  code           String         @unique
+  name           String
+  insuranceClass InsuranceClass
+  category       String
+  subcategory    String?
+  description    String?
 
   eligibleClientTypes ClientType[]
 
-  minPremium Decimal? @db.Decimal(15, 2)
-  maxPremium Decimal? @db.Decimal(15, 2)
+  minPremium    Decimal? @db.Decimal(15, 2)
+  maxPremium    Decimal? @db.Decimal(15, 2)
+  minSumInsured Decimal? @db.Decimal(15, 2)
+  maxSumInsured Decimal? @db.Decimal(15, 2)
 
   policyDurations String[]
   paymentOptions  PaymentFrequency[]
+
+  // Flexible product-specific fields for Kenya market
+  coverageDetails   Json?
+  ratingFactors     Json?
+  benefits          Json?
+  requiredDocuments String[]
+
+  brochureUrl String?
 
   status ProductStatus @default(ACTIVE)
 
   versions        ProductVersion[]
   policies        Policy[]
+  onboardingCases OnboardingCase[]
   commissionRules CommissionRule[]
+
+  createdById String?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   @@index([insurerId])
+  @@index([insuranceClass])
   @@index([category])
   @@index([status])
   @@map("products")
@@ -905,6 +1001,12 @@ model Policy {
   agentId String?
   agent   Agent?  @relation(fields: [agentId], references: [id])
 
+  onboardingCaseId String?
+  onboardingCase   OnboardingCase? @relation(fields: [onboardingCaseId], references: [id], onDelete: SetNull)
+
+  sourceLeadId String?
+  sourceLead   Lead?   @relation("LeadSourcedPolicies", fields: [sourceLeadId], references: [id], onDelete: SetNull)
+
   startDate DateTime
   endDate   DateTime
 
@@ -957,6 +1059,8 @@ model Policy {
   @@index([insurerId])
   @@index([productId])
   @@index([agentId])
+  @@index([onboardingCaseId])
+  @@index([sourceLeadId])
   @@index([status])
   @@index([endDate])
   @@index([policyNumber])
@@ -1222,6 +1326,8 @@ model Payment {
 
   status PaymentStatus @default(PENDING)
 
+  failureReason String?
+
   verifiedById String?
   verifiedAt   DateTime?
 
@@ -1231,14 +1337,16 @@ model Payment {
 
   notes String?
 
-  allocations    PaymentAllocation[]
-  receipt        Receipt?
-  journalEntries JournalEntry[]
+  allocations       PaymentAllocation[]
+  receipt           Receipt?
+  journalEntries    JournalEntry[]
+  mpesaTransactions MpesaTransaction[]
 
   createdById String?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   @@index([clientId])
   @@index([status])
@@ -1258,7 +1366,11 @@ model PaymentAllocation {
 
   amount Decimal @db.Decimal(15, 2)
 
-  notes String?
+  notes          String?
+  reversedAt     DateTime?
+  reversedById   String?
+  reversalReason String?
+  createdById    String?
 
   payment Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
   policy  Policy?  @relation(fields: [policyId], references: [id])
@@ -1286,6 +1398,10 @@ model Receipt {
   amountInWords String
 
   particulars String
+  fileUrl     String?
+  fileSize    Int?
+  mimeType    String?
+  documentId  String?
 
   issuedById String?
   issuedAt   DateTime @default(now())
@@ -1293,6 +1409,7 @@ model Receipt {
   voidedAt   DateTime?
   voidedById String?
   voidReason String?
+  deletedAt  DateTime?
 
   @@index([receiptNumber])
   @@map("receipts")
@@ -1304,6 +1421,9 @@ model Invoice {
 
   clientId String
   client   Client @relation(fields: [clientId], references: [id])
+
+  insurerId String?
+  insurer   Insurer? @relation(fields: [insurerId], references: [id])
 
   invoiceDate DateTime
   dueDate     DateTime
@@ -1327,14 +1447,53 @@ model Invoice {
   allocations PaymentAllocation[]
 
   createdById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
 
   @@index([clientId])
+  @@index([insurerId])
   @@index([status])
   @@index([dueDate])
   @@index([invoiceNumber])
   @@map("invoices")
+}
+
+model MpesaTransaction {
+  id String @id @default(uuid())
+
+  paymentId String?
+  payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  mpesaAccountId String?
+  mpesaAccount   MpesaAccount? @relation(fields: [mpesaAccountId], references: [id])
+
+  merchantRequestId        String?
+  checkoutRequestId        String?
+  conversationId           String?
+  originatorConversationId String?
+
+  transactionCode  String   @unique
+  phoneNumber      String?
+  accountReference String?
+  transactionDate  DateTime
+  amount           Decimal  @db.Decimal(15, 2)
+
+  resultCode        String?
+  resultDescription String?
+  rawPayload        Json?
+
+  matchedAt   DateTime?
+  matchedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([paymentId])
+  @@index([mpesaAccountId])
+  @@index([transactionDate])
+  @@index([phoneNumber])
+  @@map("mpesa_transactions")
 }
 
 model InvoiceLine {
@@ -1588,8 +1747,9 @@ model BankAccount {
   statements StatementUpload[]
   payments   Payment[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   @@map("bank_accounts")
 }
@@ -1611,11 +1771,13 @@ model MpesaAccount {
   lastReconciledDate    DateTime?
   lastReconciledBalance Decimal?  @db.Decimal(15, 2)
 
-  statements StatementUpload[]
-  payments   Payment[]
+  statements   StatementUpload[]
+  payments     Payment[]
+  transactions MpesaTransaction[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   @@map("mpesa_accounts")
 }

@@ -159,6 +159,16 @@ export async function getLeadById(id: string): Promise<Lead> {
           createdAt: 'desc',
         },
         take: 50,
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+        },
       },
       tasks: {
         where: {

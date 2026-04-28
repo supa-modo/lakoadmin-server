@@ -76,6 +76,7 @@ const PERMISSIONS = [
   { name: 'policies.create', module: 'policies', action: 'create', description: 'Create policies' },
   { name: 'policies.update', module: 'policies', action: 'update', description: 'Update policies' },
   { name: 'policies.delete', module: 'policies', action: 'delete', description: 'Delete policies' },
+  { name: 'policies.activate', module: 'policies', action: 'activate', description: 'Activate policies after readiness checks pass' },
   { name: 'policies.underwrite', module: 'policies', action: 'underwrite', description: 'Underwrite policies' },
 
   // Claims
@@ -91,6 +92,9 @@ const PERMISSIONS = [
   { name: 'payments.update', module: 'payments', action: 'update', description: 'Update payments' },
   { name: 'payments.verify', module: 'payments', action: 'verify', description: 'Verify payments' },
   { name: 'payments.reverse', module: 'payments', action: 'reverse', description: 'Reverse payments' },
+
+  // Receipts
+  { name: 'receipts.generate', module: 'receipts', action: 'generate', description: 'Generate official receipts' },
 
   // Agents
   { name: 'agents.read', module: 'agents', action: 'read', description: 'View agents' },
@@ -174,7 +178,7 @@ const ROLES: Record<string, {
       'clients.read', 'clients.create', 'clients.update',
       'tasks.read', 'tasks.create', 'tasks.update', 'tasks.complete',
       'onboarding.read', 'onboarding.create', 'onboarding.update',
-      'policies.read', 'policies.create', 'policies.update',
+      'policies.read', 'policies.create', 'policies.update', 'policies.activate',
       'insurers.read', 'products.read',
       'claims.read',
       'payments.read',
@@ -203,6 +207,7 @@ const ROLES: Record<string, {
       'clients.read',
       'policies.read',
       'payments.read', 'payments.create', 'payments.verify',
+      'receipts.generate',
       'accounting.read', 'accounting.create', 'accounting.reconcile',
       'commissions.read',
       'reports.read', 'reports.export',
@@ -217,6 +222,7 @@ const ROLES: Record<string, {
       'clients.read',
       'policies.read',
       'payments.read', 'payments.create', 'payments.verify', 'payments.reverse',
+      'receipts.generate',
       'accounting.read', 'accounting.create', 'accounting.approve', 'accounting.post', 'accounting.reconcile',
       'commissions.read', 'commissions.approve', 'commissions.pay',
       'reports.read', 'reports.export',
@@ -232,7 +238,7 @@ const ROLES: Record<string, {
       'tasks.read', 'tasks.update',
       'onboarding.read', 'onboarding.approve', 'onboarding.reject',
       'insurers.read', 'products.read',
-      'policies.read', 'policies.update',
+      'policies.read', 'policies.update', 'policies.activate',
       'claims.read', 'claims.update',
       'payments.read',
       'agents.read',

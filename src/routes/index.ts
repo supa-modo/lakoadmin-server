@@ -12,6 +12,16 @@ import clientsRoutes from '../modules/clients/clients.routes';
 import tasksRoutes from '../modules/tasks/tasks.routes';
 import onboardingRoutes from '../modules/onboarding/onboarding.routes';
 
+// Catalog modules
+import insurersRoutes from '../modules/insurers/insurers.routes';
+import productsRoutes from '../modules/products/products.routes';
+import commissionsRoutes from '../modules/commissions/commissions.routes';
+
+// Policy modules
+import policiesRoutes from '../modules/policies/policies.routes';
+import renewalsRoutes from '../modules/renewals/renewals.routes';
+import paymentsRoutes from '../modules/payments/payments.routes';
+
 const router = Router();
 
 // Auth & Admin routes
@@ -27,5 +37,15 @@ router.use('/leads', leadsRoutes);
 router.use('/clients', clientsRoutes);
 router.use('/tasks', tasksRoutes);
 router.use('/onboarding', onboardingRoutes);
+
+// Catalog routes
+router.use('/insurers', insurersRoutes);
+router.use('/products', productsRoutes);
+router.use('/commission-rules', commissionsRoutes);
+
+// Policy routes
+router.use('/policies', policiesRoutes);
+router.use('/renewals', renewalsRoutes);
+router.use('/payments', paymentsRoutes);
 
 export default router;

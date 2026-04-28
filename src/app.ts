@@ -47,7 +47,10 @@ if (env.isDev) {
 }
 
 // ─── Rate Limiting ────────────────────────────────────────
-app.use('/api', defaultRateLimiter);
+// In development we don't rate limit to avoid blocking local UI polling / reloads.
+if (!env.isDev) {
+  app.use('/api', defaultRateLimiter);
+}
 
 // ─── Health Check ────────────────────────────────────────
 app.get('/health', (_req, res) => {

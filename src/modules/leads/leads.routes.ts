@@ -11,6 +11,7 @@ import {
   convertToClientSchema,
   logActivitySchema,
 } from './leads.validation';
+import { completeLeadConversionSchema } from './leadConversion.validation';
 import {
   getLeads,
   getLead,
@@ -23,6 +24,10 @@ import {
   logActivityHandler,
   checkDuplicateHandler,
 } from './leads.controller';
+import {
+  completeLeadConversionHandler,
+  getLeadConversionPreviewHandler,
+} from './leadConversion.controller';
 
 const router = Router();
 
@@ -36,6 +41,8 @@ router.patch('/:id', requirePermission('leads.update'), validate(updateLeadSchem
 router.delete('/:id', requirePermission('leads.delete'), deleteLeadHandler);
 router.post('/:id/assign', requirePermission('leads.assign'), validate(assignLeadSchema), assignLeadHandler);
 router.patch('/:id/status', requirePermission('leads.update'), validate(updateStatusSchema), updateLeadStatusHandler);
+router.get('/:id/convert/start', requirePermission('leads.convert'), getLeadConversionPreviewHandler);
+router.post('/:id/convert/complete', requirePermission('leads.convert'), validate(completeLeadConversionSchema), completeLeadConversionHandler);
 router.post('/:id/convert', requirePermission('leads.convert'), validate(convertToClientSchema), convertToClientHandler);
 router.post('/:id/activities', requirePermission('leads.update'), validate(logActivitySchema), logActivityHandler);
 

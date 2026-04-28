@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>RCT-2026-000001</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 34px; color: #172331; font-family: Arial, Helvetica, sans-serif; }
+    .shell { border: 1px solid #d8e0e5; border-radius: 18px; overflow: hidden; }
+    .header { background: #0f3f3c; color: #ffffff; padding: 28px 32px; display: flex; justify-content: space-between; }
+    .brand { font-size: 26px; font-weight: 800; letter-spacing: .4px; }
+    .muted { color: #6b7280; }
+    .white-muted { color: #d8f1ee; }
+    .section { padding: 26px 32px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+    .label { font-size: 11px; text-transform: uppercase; color: #718096; font-weight: 700; margin-bottom: 6px; }
+    .value { font-size: 14px; font-weight: 700; }
+    .amount-box { background: #f1fbf9; border: 1px solid #bde5dd; border-radius: 14px; padding: 18px; text-align: right; }
+    .amount-main { font-size: 30px; color: #0f766e; font-weight: 800; }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    th { text-align: left; background: #f8fafc; color: #475569; font-size: 12px; padding: 12px; border-bottom: 1px solid #e5e7eb; }
+    td { padding: 12px; border-bottom: 1px solid #eef2f7; font-size: 13px; }
+    .amount { text-align: right; font-weight: 700; }
+    .footer { border-top: 1px solid #eef2f7; padding: 18px 32px; font-size: 11px; color: #64748b; display: flex; justify-content: space-between; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="header">
+      <div>
+        <div class="brand">Lako Agency</div>
+        <div class="white-muted">Insurance brokerage receipt</div>
+      </div>
+      <div style="text-align:right">
+        <div class="white-muted">Receipt No.</div>
+        <div style="font-size:22px;font-weight:800">RCT-2026-000001</div>
+      </div>
+    </div>
+    <div class="section grid">
+      <div>
+        <div class="label">Received From</div>
+        <div class="value">New Lead Name</div>
+        <div class="muted"></div>
+      </div>
+      <div class="amount-box">
+        <div class="label">Amount Received</div>
+        <div class="amount-main">Ksh 65,365.00</div>
+        <div class="muted">Kenya Shillings 65365.00 only</div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="grid">
+        <div>
+          <div class="label">Payment</div>
+          <div class="value">PAY-2026-000001 / CHEQUE</div>
+        </div>
+        <div>
+          <div class="label">Reference</div>
+          <div class="value">CHQ13456789</div>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Particulars</th><th class="amount">Amount</th></tr></thead>
+        <tbody>
+    <tr>
+      <td>POL-2026-000001</td>
+      <td class="amount">Ksh 65,365.00</td>
+    </tr>
+  </tbody>
+      </table>
+    </div>
+    <div class="footer">
+      <span>Issued 28/04/2026, 10:11:43</span>
+      <span>Premium collections are held for insurer remittance; broker revenue is commission only.</span>
+    </div>
+  </div>
+</body>
+</html>

@@ -13,6 +13,7 @@ import {
   submitOnboardingSchema,
   approveOnboardingSchema,
   rejectOnboardingSchema,
+  createPolicyFromOnboardingSchema,
 } from './onboarding.validation';
 import {
   getOnboardingCases,
@@ -24,6 +25,7 @@ import {
   submitOnboardingHandler,
   approveOnboardingHandler,
   rejectOnboardingHandler,
+  createPolicyFromOnboardingHandler,
 } from './onboarding.controller';
 
 const router = Router();
@@ -42,17 +44,25 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: 100 * 1024 * 1024, // 100MB limit for group member archives
   },
   fileFilter: (req: any, file: any, cb: any) => {
-    const allowedTypes = /jpeg|jpg|png|pdf|doc|docx/;
+    const allowedTypes = /jpeg|jpg|png|pdf|doc|docx|zip|rar|7z/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
+    const archiveMimeTypes = [
+      'application/zip',
+      'application/x-zip-compressed',
+      'application/x-rar-compressed',
+      'application/vnd.rar',
+      'application/x-7z-compressed',
+      'application/octet-stream',
+    ];
+    const mimetype = allowedTypes.test(file.mimetype) || archiveMimeTypes.includes(file.mimetype);
 
     if (mimetype && extname) {
       return cb(null, true);
     } else {
-      cb(new Error('Only image and document files are allowed'));
+      cb(new Error('Only image, document, and compressed archive files are allowed'));
     }
   },
 });
@@ -68,5 +78,6 @@ router.patch('/:id/documents/:docId', requirePermission('onboarding.update'), va
 router.post('/:id/submit', requirePermission('onboarding.update'), validate(submitOnboardingSchema), submitOnboardingHandler);
 router.post('/:id/approve', requirePermission('onboarding.approve'), validate(approveOnboardingSchema), approveOnboardingHandler);
 router.post('/:id/reject', requirePermission('onboarding.reject'), validate(rejectOnboardingSchema), rejectOnboardingHandler);
+router.post('/:id/create-policy', requirePermission('policies.create'), validate(createPolicyFromOnboardingSchema), createPolicyFromOnboardingHandler);
 
 export default router;

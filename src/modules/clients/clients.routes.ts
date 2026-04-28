@@ -9,6 +9,7 @@ import {
   createContactSchema,
   updateContactSchema,
 } from './clients.validation';
+import { startClientOnboardingSchema } from '../onboarding/onboarding.validation';
 import {
   getClients,
   getClient,
@@ -21,6 +22,7 @@ import {
   updateContactHandler,
   deleteContactHandler,
 } from './clients.controller';
+import { startClientOnboardingHandler } from '../onboarding/onboarding.controller';
 
 const router = Router();
 
@@ -32,6 +34,7 @@ router.get('/search', requirePermission('clients.read'), searchClientsHandler);
 router.get('/:id', requirePermission('clients.read'), getClient);
 router.patch('/:id', requirePermission('clients.update'), validate(updateClientSchema), updateClientHandler);
 router.delete('/:id', requirePermission('clients.delete'), deleteClientHandler);
+router.post('/:clientId/onboarding/start', requirePermission('onboarding.create'), validate(startClientOnboardingSchema), startClientOnboardingHandler);
 
 // Contact routes
 router.get('/:id/contacts', requirePermission('clients.read'), getClientContacts);
