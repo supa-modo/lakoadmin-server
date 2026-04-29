@@ -16,6 +16,9 @@ import onboardingRoutes from '../modules/onboarding/onboarding.routes';
 import insurersRoutes from '../modules/insurers/insurers.routes';
 import productsRoutes from '../modules/products/products.routes';
 import commissionsRoutes from '../modules/commissions/commissions.routes';
+import commissionEntriesRoutes from '../modules/commissions/commissionEntries.routes';
+import agentsRoutes from '../modules/agents/agents.routes';
+import accountingRoutes from '../modules/accounting/accounting.routes';
 
 // Policy modules
 import policiesRoutes from '../modules/policies/policies.routes';
@@ -42,10 +45,13 @@ router.use('/onboarding', onboardingRoutes);
 router.use('/insurers', insurersRoutes);
 router.use('/products', productsRoutes);
 router.use('/commission-rules', commissionsRoutes);
+router.use('/commissions', commissionEntriesRoutes);
 
 // Policy routes
 router.use('/policies', policiesRoutes);
 router.use('/renewals', renewalsRoutes);
 router.use('/payments', paymentsRoutes);
+router.use('/agents', agentsRoutes);
+router.use('/accounting', accountingRoutes);
 
 export default router;

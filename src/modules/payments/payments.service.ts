@@ -3,12 +3,16 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../../config/database';
 import { AuthRequest } from '../../types/express';
 import { addJob, QUEUE_NAMES } from '../../config/queues';
-import { generateReceiptArtifact } from './receipt.service';
+import { generatePaymentAcknowledgementArtifact, generateReceiptArtifact } from './receipt.service';
+import { postJournal, SYSTEM_ACCOUNTS } from '../accounting/postingEngine.service';
+import { calculateCommission } from '../commissions/commissions.service';
 import {
   AllocatePaymentInput,
   CreateInvoiceInput,
   PaymentAllocationInput,
+  RecordDirectInsurerPaymentInput,
   RecordPaymentInput,
+  VerifyDirectInsurerPaymentInput,
 } from './payments.validation';
 
 type Tx = Prisma.TransactionClient;
@@ -71,14 +75,61 @@ function amountInWords(amount: Decimal): string {
 
 async function generateSequentialNumber(
   tx: Tx,
-  model: 'payment' | 'receipt' | 'invoice' | 'journalEntry',
-  field: 'paymentNumber' | 'receiptNumber' | 'invoiceNumber' | 'entryNumber',
+  model: 'payment' | 'receipt' | 'invoice' | 'journalEntry' | 'financeTransaction',
+  field: 'paymentNumber' | 'receiptNumber' | 'invoiceNumber' | 'entryNumber' | 'transactionNumber',
   prefix: string,
 ): Promise<string> {
   const year = new Date().getFullYear();
   const startsWith = `${prefix}-${year}-`;
   const count = await (tx[model] as any).count({ where: { [field]: { startsWith } } });
   return `${startsWith}${String(count + 1).padStart(6, '0')}`;
+}
+
+async function createFinanceTransactionFromBrokerPayment(tx: Tx, paymentId: string, journalEntryId: string, userId: string): Promise<void> {
+  const payment = await tx.payment.findUniqueOrThrow({
+    where: { id: paymentId },
+    include: { allocations: true },
+  });
+  const activeAllocations = payment.allocations.filter((allocation) => !allocation.reversedAt);
+  const linkedPolicyIds = activeAllocations.map((allocation) => allocation.policyId).filter(Boolean) as string[];
+  const linkedInvoiceIds = activeAllocations.map((allocation) => allocation.invoiceId).filter(Boolean) as string[];
+  await tx.financeTransaction.create({
+    data: {
+      transactionNumber: await generateSequentialNumber(tx, 'financeTransaction', 'transactionNumber', 'FTX'),
+      type: 'BROKER_PREMIUM_PAYMENT',
+      status: 'POSTED',
+      transactionDate: payment.paymentDate,
+      description: `Broker premium payment ${payment.paymentNumber}`,
+      reference: payment.transactionCode ?? payment.reference ?? payment.paymentNumber,
+      amount: payment.amount,
+      currency: payment.currency,
+      direction: 'INFLOW',
+      bankAccountId: payment.bankAccountId ?? null,
+      mpesaAccountId: payment.mpesaAccountId ?? null,
+      journalEntryId,
+      paymentId: payment.id,
+      clientId: payment.clientId,
+      policyId: linkedPolicyIds[0] ?? null,
+      notes: linkedInvoiceIds.length > 0
+        ? `Linked invoices: ${linkedInvoiceIds.join(',')}`
+        : linkedPolicyIds.length > 1
+          ? `Linked policies: ${linkedPolicyIds.join(',')}`
+          : null,
+      createdById: userId,
+    },
+  });
+  if (payment.bankAccountId) {
+    await tx.bankAccount.update({
+      where: { id: payment.bankAccountId },
+      data: { currentBalance: { increment: payment.amount } },
+    });
+  }
+  if (payment.mpesaAccountId) {
+    await tx.mpesaAccount.update({
+      where: { id: payment.mpesaAccountId },
+      data: { currentBalance: { increment: payment.amount } },
+    });
+  }
 }
 
 async function logPolicyEvent(
@@ -167,6 +218,8 @@ async function applyAllocation(
       data: {
         paidAmount: { increment: amount },
         outstandingAmount: { decrement: amount },
+        brokerCollectedAmount: { increment: amount },
+        outstandingPremiumAmount: { decrement: amount },
       },
       select: {
         id: true,
@@ -308,26 +361,235 @@ async function createPaymentJournalEntry(tx: Tx, paymentId: string, userId: stri
     where: { id: paymentId },
     include: { allocations: true },
   });
-  const entryNumber = await generateSequentialNumber(tx, 'journalEntry', 'entryNumber', 'JE');
+  const accountCode = payment.method === 'MPESA' ? SYSTEM_ACCOUNTS.MPESA_TRUST : SYSTEM_ACCOUNTS.BANK_TRUST;
 
-  await tx.journalEntry.create({
-    data: {
-      entryNumber,
-      entryDate: payment.paymentDate,
-      postingDate: new Date(),
-      description: `Premium collection ${payment.paymentNumber}`,
-      reference: payment.transactionCode ?? payment.reference ?? payment.paymentNumber,
-      entryType: 'PAYMENT_RECEIVED',
-      status: 'POSTED',
-      totalDebit: payment.amount,
-      totalCredit: payment.amount,
+  await postJournal(tx, {
+    event: 'BROKER_PREMIUM_RECEIVED',
+    entryDate: payment.paymentDate,
+    description: `Broker-collected premium ${payment.paymentNumber}`,
+    reference: payment.transactionCode ?? payment.reference ?? payment.paymentNumber,
+    source: {
       paymentId,
-      postedById: userId,
-      postedAt: new Date(),
+      clientId: payment.clientId,
+      policyId: payment.allocations.find((allocation) => allocation.policyId)?.policyId ?? undefined,
+    },
+    userId,
+    lines: [
+      { accountCode, debit: payment.amount, description: 'Premium cash received into trust account' },
+      { accountCode: SYSTEM_ACCOUNTS.INSURER_PAYABLE, credit: payment.amount, description: 'Premium payable to insurer' },
+    ],
+  });
+}
+
+export async function recordBrokerPaymentInTransaction(
+  tx: Tx,
+  data: RecordPaymentInput,
+  userId: string,
+): Promise<string> {
+  const client = await tx.client.findFirst({
+    where: { id: data.clientId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!client) throw new Error('Client not found');
+
+  const allocations = data.allocations ?? [];
+  const allocationTotal = allocations.reduce((sum, allocation) => sum.plus(allocation.amount), new Decimal(0));
+  const paymentAmount = decimal(data.amount);
+  if (allocationTotal.gt(paymentAmount)) {
+    throw new Error('Allocated amount cannot exceed payment amount');
+  }
+
+  await assertAllocationTargets(tx, data.clientId, allocations);
+
+  const paymentNumber = await generateSequentialNumber(tx, 'payment', 'paymentNumber', 'PAY');
+  const payment = await tx.payment.create({
+    data: {
+      paymentNumber,
+      clientId: data.clientId,
+      amount: paymentAmount,
+      currency: data.currency,
+      premiumCollectionMode: data.premiumCollectionMode ?? 'BROKER_COLLECTED',
+      premiumPaidTo: data.premiumCollectionMode === 'MIXED' ? 'BOTH' : 'BROKER',
+      method: data.method,
+      reference: data.reference ?? null,
+      transactionCode: data.transactionCode ?? null,
+      paymentDate: new Date(data.paymentDate),
+      receivedDate: data.receivedDate ? new Date(data.receivedDate) : new Date(),
+      bankAccountId: data.bankAccountId ?? null,
+      mpesaAccountId: data.mpesaAccountId ?? null,
+      status: data.autoVerify ? 'VERIFIED' : 'PENDING',
+      verifiedById: data.autoVerify ? userId : null,
+      verifiedAt: data.autoVerify ? new Date() : null,
+      notes: data.notes ?? null,
       createdById: userId,
-      notes: 'Light journal marker only. Detailed chart-of-account lines will be expanded in Phase 8.',
     },
   });
+
+  if (data.method === 'MPESA' && data.transactionCode) {
+    await tx.mpesaTransaction.upsert({
+      where: { transactionCode: data.transactionCode },
+      update: {
+        paymentId: payment.id,
+        mpesaAccountId: data.mpesaAccountId ?? null,
+        matchedAt: new Date(),
+        matchedById: userId,
+      },
+      create: {
+        paymentId: payment.id,
+        mpesaAccountId: data.mpesaAccountId ?? null,
+        merchantRequestId: data.mpesa?.merchantRequestId ?? null,
+        checkoutRequestId: data.mpesa?.checkoutRequestId ?? null,
+        conversationId: data.mpesa?.conversationId ?? null,
+        originatorConversationId: data.mpesa?.originatorConversationId ?? null,
+        transactionCode: data.transactionCode,
+        phoneNumber: data.mpesa?.phoneNumber ?? null,
+        accountReference: data.mpesa?.accountReference ?? data.reference ?? null,
+        transactionDate: new Date(data.paymentDate),
+        amount: paymentAmount,
+        resultCode: data.mpesa?.resultCode ?? null,
+        resultDescription: data.mpesa?.resultDescription ?? null,
+        rawPayload: data.mpesa?.rawPayload as Prisma.InputJsonValue | undefined,
+        matchedAt: new Date(),
+        matchedById: userId,
+      },
+    });
+  }
+
+  for (const allocation of allocations) {
+    await applyAllocation(tx, payment.id, data.clientId, allocation, userId);
+  }
+
+  await updatePaymentStatus(tx, payment.id);
+  await createReceiptForPayment(tx, payment.id, userId);
+  await createPaymentJournalEntry(tx, payment.id, userId);
+  const journal = await tx.journalEntry.findFirst({
+    where: { paymentId: payment.id, postingEvent: 'BROKER_PREMIUM_RECEIVED' as any },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
+  if (journal) {
+    await createFinanceTransactionFromBrokerPayment(tx, payment.id, journal.id, userId);
+  }
+  for (const allocation of allocations.filter((item) => item.policyId)) {
+    await recognizePolicyCommission(tx, allocation.policyId!, 'BROKER_COLLECTED_PREMIUM', userId);
+  }
+
+  return payment.id;
+}
+
+async function resolveCommissionForPolicy(tx: Tx, policyId: string) {
+  const policy = await tx.policy.findUniqueOrThrow({
+    where: { id: policyId },
+    include: {
+      client: { select: { type: true } },
+      agent: { select: { id: true, defaultCommissionRate: true, withholdingTaxRate: true } },
+    },
+  });
+
+  const rule = await tx.commissionRule.findFirst({
+    where: {
+      isActive: true,
+      commissionType: policy.renewedFromId ? 'RENEWAL' : 'FIRST_YEAR',
+      effectiveFrom: { lte: policy.startDate },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gte: policy.startDate } }],
+      AND: [
+        { OR: [{ productId: policy.productId }, { productId: null }] },
+        { OR: [{ insurerId: policy.insurerId }, { insurerId: null }] },
+        { OR: [{ agentId: policy.agentId }, { agentId: null }] },
+        { OR: [{ clientType: policy.client.type }, { clientType: null }] },
+      ],
+    },
+    orderBy: [{ agentId: 'desc' }, { productId: 'desc' }, { insurerId: 'desc' }, { effectiveFrom: 'desc' }],
+  });
+
+  const rate = rule?.rate ?? policy.agent?.defaultCommissionRate ?? new Decimal(0);
+  const grossCommission = decimal(policy.totalPremium).mul(rate).toDecimalPlaces(2);
+  return { policy, rate, grossCommission };
+}
+
+async function recognizePolicyCommission(
+  tx: Tx,
+  policyId: string,
+  source: 'BROKER_COLLECTED_PREMIUM' | 'DIRECT_TO_INSURER_PREMIUM',
+  userId: string,
+): Promise<string | null> {
+  const existing = await tx.commissionEntry.findFirst({
+    where: { policyId, commissionSource: source, status: { notIn: ['CANCELLED', 'CLAWED_BACK'] } },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  const { policy, rate, grossCommission } = await resolveCommissionForPolicy(tx, policyId);
+  if (grossCommission.lte(0)) {
+    await tx.policy.update({
+      where: { id: policyId },
+      data: { insurerCommissionStatus: 'NOT_DUE', commissionReceivableAmount: new Decimal(0) },
+    });
+    return null;
+  }
+
+  await tx.policy.update({
+    where: { id: policyId },
+    data: {
+      insurerCommissionStatus: 'RECEIVABLE',
+      commissionReceivableAmount: { increment: grossCommission },
+    },
+  });
+
+  await postJournal(tx, {
+    event: source === 'DIRECT_TO_INSURER_PREMIUM' ? 'DIRECT_INSURER_PAYMENT_VERIFIED' : 'COMMISSION_RECOGNIZED',
+    entryDate: new Date(),
+    description: `Commission receivable recognized for policy ${policy.policyNumber}`,
+    reference: policy.policyNumber,
+    source: { policyId, insurerId: policy.insurerId, clientId: policy.clientId, agentId: policy.agentId ?? undefined },
+    userId,
+    lines: [
+      {
+        accountCode: SYSTEM_ACCOUNTS.COMMISSION_RECEIVABLE_INSURERS,
+        debit: grossCommission,
+        description: 'Commission receivable from insurer',
+      },
+      {
+        accountCode: SYSTEM_ACCOUNTS.COMMISSION_REVENUE,
+        credit: grossCommission,
+        description: 'Commission revenue recognized',
+      },
+    ],
+  });
+
+  if (!policy.agentId) return null;
+
+  const withholdingRate = policy.agent?.withholdingTaxRate ?? new Decimal(0);
+  const withholdingTax = grossCommission.mul(withholdingRate).toDecimalPlaces(2);
+  const netCommission = grossCommission.minus(withholdingTax);
+  const entry = await tx.commissionEntry.create({
+    data: {
+      agentId: policy.agentId,
+      policyId: policy.id,
+      insurerId: policy.insurerId,
+      productId: policy.productId,
+      premiumAmount: policy.totalPremium,
+      commissionBasis: policy.totalPremium,
+      commissionRate: rate,
+      grossCommission,
+      grossCommissionAmount: grossCommission,
+      withholdingTax,
+      withholdingTaxAmount: withholdingTax,
+      netCommission,
+      netCommissionAmount: netCommission,
+      commissionType: policy.renewedFromId ? 'RENEWAL' : 'FIRST_YEAR',
+      commissionSource: source,
+      paymentCollectionMode: source === 'DIRECT_TO_INSURER_PREMIUM' ? 'DIRECT_TO_INSURER' : policy.premiumCollectionMode,
+      settlementMode: policy.commissionSettlementMode,
+      insurerCommissionStatus: 'RECEIVABLE',
+      commissionReceivableAmount: grossCommission,
+      status: 'CALCULATED',
+      earnedDate: new Date(),
+      notes: 'Auto-calculated from policy premium collection event',
+    },
+  });
+
+  return entry.id;
 }
 
 export async function listPayments(req: AuthRequest) {
@@ -387,6 +649,39 @@ export async function getPaymentById(id: string) {
   return payment;
 }
 
+export async function listDirectInsurerPayments(req: AuthRequest) {
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
+  const skip = (page - 1) * limit;
+  const policyId = req.query.policyId as string | undefined;
+  const insurerId = req.query.insurerId as string | undefined;
+  const status = req.query.status as string | undefined;
+
+  const where: Prisma.DirectInsurerPaymentWhereInput = {
+    deletedAt: null,
+    ...(policyId && { policyId }),
+    ...(insurerId && { insurerId }),
+    ...(status && { verificationStatus: status as any }),
+  };
+
+  const [payments, total] = await Promise.all([
+    prisma.directInsurerPayment.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { paymentDate: 'desc' },
+      include: {
+        policy: { select: { id: true, policyNumber: true, totalPremium: true, outstandingAmount: true, status: true } },
+        client: { select: { id: true, clientNumber: true, firstName: true, lastName: true, companyName: true, tradingName: true } },
+        insurer: { select: { id: true, name: true, shortName: true } },
+      },
+    }),
+    prisma.directInsurerPayment.count({ where }),
+  ]);
+
+  return { payments, total, page, limit };
+}
+
 export async function getPaymentStats() {
   const [received, completed, pending, reversed, failed, outstanding] = await Promise.all([
     prisma.payment.aggregate({ where: { deletedAt: null, status: { notIn: ['REVERSED', 'FAILED'] } }, _sum: { amount: true }, _count: true }),
@@ -414,86 +709,203 @@ export async function getPaymentStats() {
 }
 
 export async function recordPayment(data: RecordPaymentInput, userId: string) {
-  const allocationTotal = data.allocations.reduce((sum, allocation) => sum.plus(allocation.amount), new Decimal(0));
-  const paymentAmount = decimal(data.amount);
-  if (allocationTotal.gt(paymentAmount)) {
-    throw new Error('Allocated amount cannot exceed payment amount');
+  if (data.premiumCollectionMode === 'DIRECT_TO_INSURER') {
+    throw new Error('Use the direct-to-insurer payment workflow for premiums paid to insurers');
   }
 
-  const paymentId = await prisma.$transaction(async (tx) => {
-    const client = await tx.client.findFirst({
-      where: { id: data.clientId, deletedAt: null },
-      select: { id: true },
+  const paymentId = await prisma.$transaction((tx) => recordBrokerPaymentInTransaction(tx, data, userId), { timeout: 30000 });
+
+  await addJob(QUEUE_NAMES.EMAIL_NOTIFICATIONS, 'payment-receipt-created', { paymentId, userId }).catch(() => false);
+  return getPaymentById(paymentId);
+}
+
+async function generateAcknowledgementNumber(tx: Tx): Promise<string> {
+  const year = new Date().getFullYear();
+  const startsWith = `ACK-${year}-`;
+  const count = await tx.directInsurerPayment.count({ where: { acknowledgementNumber: { startsWith } } });
+  return `${startsWith}${String(count + 1).padStart(6, '0')}`;
+}
+
+async function applyVerifiedDirectInsurerPayment(tx: Tx, directPaymentId: string, userId: string): Promise<void> {
+  const directPayment = await tx.directInsurerPayment.findUniqueOrThrow({
+    where: { id: directPaymentId },
+    include: { policy: true },
+  });
+
+  const policy = directPayment.policy;
+  const amount = decimal(directPayment.amount);
+  const nextDirect = decimal(policy.directToInsurerAmount).plus(amount);
+  const nextBroker = decimal(policy.brokerCollectedAmount);
+  const calculatedOutstanding = decimal(policy.totalPremium).minus(nextBroker).minus(nextDirect);
+  const nextOutstanding = calculatedOutstanding.gt(0) ? calculatedOutstanding : new Decimal(0);
+  const nextMode = nextBroker.gt(0) ? 'MIXED' : 'DIRECT_TO_INSURER';
+
+  await tx.policy.update({
+    where: { id: policy.id },
+    data: {
+      premiumCollectionMode: nextMode,
+      premiumPaidTo: nextMode === 'MIXED' ? 'BOTH' : 'INSURER',
+      paidAmount: { increment: amount },
+      outstandingAmount: nextOutstanding,
+      directToInsurerAmount: nextDirect,
+      totalPremiumAmount: policy.totalPremium,
+      outstandingPremiumAmount: nextOutstanding,
+      paymentVerificationStatus: directPayment.verificationStatus,
+    },
+  });
+
+  await logPolicyEvent(
+    tx,
+    policy.id,
+    'DIRECT_INSURER_PAYMENT_VERIFIED',
+    `Direct insurer payment of ${money(amount)} verified`,
+    { directInsurerPaymentId: directPayment.id, insurerReference: directPayment.insurerReference },
+    userId,
+  );
+
+  const commissionEntryId = await recognizePolicyCommission(tx, policy.id, 'DIRECT_TO_INSURER_PREMIUM', userId);
+  if (commissionEntryId) {
+    await tx.directInsurerPayment.update({ where: { id: directPayment.id }, data: { commissionEntryId } });
+  }
+}
+
+export async function recordDirectInsurerPayment(data: RecordDirectInsurerPaymentInput, userId: string) {
+  const directPaymentId = await prisma.$transaction(async (tx) => {
+    const policy = await tx.policy.findFirst({
+      where: { id: data.policyId, deletedAt: null },
+      include: {
+        client: true,
+        insurer: true,
+      },
     });
-    if (!client) throw new Error('Client not found');
+    if (!policy) throw new Error('Policy not found');
 
-    await assertAllocationTargets(tx, data.clientId, data.allocations);
-
-    const paymentNumber = await generateSequentialNumber(tx, 'payment', 'paymentNumber', 'PAY');
-    const payment = await tx.payment.create({
+    const acknowledgementNumber = data.generateAcknowledgement ? await generateAcknowledgementNumber(tx) : null;
+    const directPayment = await tx.directInsurerPayment.create({
       data: {
-        paymentNumber,
-        clientId: data.clientId,
-        amount: paymentAmount,
+        acknowledgementNumber,
+        policyId: policy.id,
+        clientId: policy.clientId,
+        insurerId: policy.insurerId,
+        amount: decimal(data.amount),
         currency: data.currency,
-        method: data.method,
-        reference: data.reference ?? null,
-        transactionCode: data.transactionCode ?? null,
         paymentDate: new Date(data.paymentDate),
-        receivedDate: data.receivedDate ? new Date(data.receivedDate) : new Date(),
-        bankAccountId: data.bankAccountId ?? null,
-        mpesaAccountId: data.mpesaAccountId ?? null,
-        status: data.autoVerify ? 'VERIFIED' : 'PENDING',
-        verifiedById: data.autoVerify ? userId : null,
-        verifiedAt: data.autoVerify ? new Date() : null,
+        method: data.method,
+        insurerReference: data.insurerReference,
         notes: data.notes ?? null,
+        proofOfPaymentDocumentId: data.proofOfPaymentDocumentId ?? null,
+        verificationStatus: data.verificationStatus,
+        verifiedById: data.verificationStatus === 'VERIFIED' ? userId : null,
+        verifiedAt: data.verificationStatus === 'VERIFIED' ? new Date() : null,
         createdById: userId,
       },
     });
 
-    if (data.method === 'MPESA' && data.transactionCode) {
-      await tx.mpesaTransaction.upsert({
-        where: { transactionCode: data.transactionCode },
-        update: {
-          paymentId: payment.id,
-          mpesaAccountId: data.mpesaAccountId ?? null,
-          matchedAt: new Date(),
-          matchedById: userId,
+    if (acknowledgementNumber) {
+      const artifact = await generatePaymentAcknowledgementArtifact({
+        acknowledgementNumber,
+        policyNumber: policy.policyNumber,
+        clientName: clientDisplayName(policy.client),
+        insurerName: policy.insurer.name,
+        amount: money(decimal(data.amount)),
+        paymentMethod: data.method,
+        insurerReference: data.insurerReference,
+        paymentDate: new Date(data.paymentDate),
+        issuedAt: new Date(),
+        notes: data.notes,
+      });
+
+      const document = await tx.document.create({
+        data: {
+          entityType: 'DIRECT_INSURER_PAYMENT',
+          entityId: directPayment.id,
+          clientId: policy.clientId,
+          type: 'PAYMENT_ACKNOWLEDGEMENT',
+          category: 'PAYMENTS',
+          name: `Payment Acknowledgement ${acknowledgementNumber}`,
+          description: 'Acknowledgement for premium paid directly to insurer. This is not a Lako cash receipt.',
+          fileUrl: artifact.fileUrl,
+          fileSize: artifact.fileSize,
+          mimeType: artifact.mimeType,
+          tags: ['payment-acknowledgement', 'direct-to-insurer', policy.policyNumber],
+          createdById: userId,
         },
-        create: {
-          paymentId: payment.id,
-          mpesaAccountId: data.mpesaAccountId ?? null,
-          merchantRequestId: data.mpesa?.merchantRequestId ?? null,
-          checkoutRequestId: data.mpesa?.checkoutRequestId ?? null,
-          conversationId: data.mpesa?.conversationId ?? null,
-          originatorConversationId: data.mpesa?.originatorConversationId ?? null,
-          transactionCode: data.transactionCode,
-          phoneNumber: data.mpesa?.phoneNumber ?? null,
-          accountReference: data.mpesa?.accountReference ?? data.reference ?? null,
-          transactionDate: new Date(data.paymentDate),
-          amount: paymentAmount,
-          resultCode: data.mpesa?.resultCode ?? null,
-          resultDescription: data.mpesa?.resultDescription ?? null,
-          rawPayload: data.mpesa?.rawPayload as Prisma.InputJsonValue | undefined,
-          matchedAt: new Date(),
-          matchedById: userId,
-        },
+      });
+      await tx.directInsurerPayment.update({
+        where: { id: directPayment.id },
+        data: { acknowledgementDocumentId: document.id },
       });
     }
 
-    for (const allocation of data.allocations) {
-      await applyAllocation(tx, payment.id, data.clientId, allocation, userId);
+    await logPolicyEvent(
+      tx,
+      policy.id,
+      'DIRECT_INSURER_PAYMENT_RECORDED',
+      `Direct insurer payment of ${money(decimal(data.amount))} recorded`,
+      { directInsurerPaymentId: directPayment.id, insurerReference: data.insurerReference, verificationStatus: data.verificationStatus },
+      userId,
+    );
+
+    if (data.verificationStatus === 'VERIFIED') {
+      await applyVerifiedDirectInsurerPayment(tx, directPayment.id, userId);
     }
 
-    await updatePaymentStatus(tx, payment.id);
-    await createReceiptForPayment(tx, payment.id, userId);
-    await createPaymentJournalEntry(tx, payment.id, userId);
-
-    return payment.id;
+    return directPayment.id;
   }, { timeout: 30000 });
 
-  await addJob(QUEUE_NAMES.EMAIL_NOTIFICATIONS, 'payment-receipt-created', { paymentId, userId }).catch(() => false);
-  return getPaymentById(paymentId);
+  return prisma.directInsurerPayment.findUniqueOrThrow({
+    where: { id: directPaymentId },
+    include: { policy: true, client: true, insurer: true },
+  });
+}
+
+export async function verifyDirectInsurerPayment(
+  directPaymentId: string,
+  data: VerifyDirectInsurerPaymentInput,
+  userId: string,
+) {
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.directInsurerPayment.findFirst({
+      where: { id: directPaymentId, deletedAt: null },
+      include: { policy: true },
+    });
+    if (!existing) throw new Error('Direct insurer payment not found');
+    if (existing.verificationStatus === 'VERIFIED') throw new Error('Direct insurer payment is already verified');
+
+    await tx.directInsurerPayment.update({
+      where: { id: directPaymentId },
+      data: {
+        verificationStatus: data.verificationStatus,
+        verifiedById: userId,
+        verifiedAt: new Date(),
+        rejectionReason: data.rejectionReason ?? null,
+        notes: data.notes ?? existing.notes,
+      },
+    });
+
+    await tx.policy.update({
+      where: { id: existing.policyId },
+      data: { paymentVerificationStatus: data.verificationStatus },
+    });
+
+    await logPolicyEvent(
+      tx,
+      existing.policyId,
+      data.verificationStatus === 'REJECTED' ? 'DIRECT_INSURER_PAYMENT_REJECTED' : 'DIRECT_INSURER_PAYMENT_VERIFICATION_UPDATED',
+      `Direct insurer payment ${data.verificationStatus.toLowerCase().replace(/_/g, ' ')}`,
+      { directInsurerPaymentId: directPaymentId, rejectionReason: data.rejectionReason },
+      userId,
+    );
+
+    if (data.verificationStatus === 'VERIFIED') {
+      await applyVerifiedDirectInsurerPayment(tx, directPaymentId, userId);
+    }
+  }, { timeout: 30000 });
+
+  return prisma.directInsurerPayment.findUniqueOrThrow({
+    where: { id: directPaymentId },
+    include: { policy: true, client: true, insurer: true },
+  });
 }
 
 export async function allocatePayment(paymentId: string, data: AllocatePaymentInput, userId: string) {
@@ -569,6 +981,8 @@ export async function reversePayment(paymentId: string, reason: string, userId: 
           data: {
             paidAmount: { decrement: allocation.amount },
             outstandingAmount: { increment: allocation.amount },
+            brokerCollectedAmount: { decrement: allocation.amount },
+            outstandingPremiumAmount: { increment: allocation.amount },
           },
           select: { id: true, policyNumber: true, paidAmount: true, outstandingAmount: true, status: true },
         });

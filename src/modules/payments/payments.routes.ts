@@ -8,7 +8,9 @@ import {
   failPaymentSchema,
   listPaymentsQuerySchema,
   recordPaymentSchema,
+  recordDirectInsurerPaymentSchema,
   reversePaymentSchema,
+  verifyDirectInsurerPaymentSchema,
   verifyPaymentSchema,
 } from './payments.validation';
 import {
@@ -22,9 +24,12 @@ import {
   getPayment,
   getPayments,
   getPaymentsStats,
+  getDirectInsurerPayments,
   getPolicyBalanceHandler,
+  recordDirectInsurerPaymentHandler,
   recordPaymentHandler,
   reversePaymentHandler,
+  verifyDirectInsurerPaymentHandler,
   verifyPaymentHandler,
 } from './payments.controller';
 
@@ -38,6 +43,13 @@ router.get('/mpesa-accounts', requirePermission('payments.read'), getMpesaAccoun
 router.get('/invoices', requirePermission('payments.read'), getInvoices);
 router.post('/invoices', requirePermission('payments.create'), validate(createInvoiceSchema), createInvoiceHandler);
 router.get('/policies/:policyId/balance', requirePermission('payments.read'), getPolicyBalanceHandler);
+router.get('/direct-insurer', requirePermission('payments.read'), getDirectInsurerPayments);
+router.post(
+  '/direct-insurer',
+  requirePermission('payments.record_direct_insurer_payment'),
+  validate(recordDirectInsurerPaymentSchema),
+  recordDirectInsurerPaymentHandler,
+);
 
 router.get('/', requirePermission('payments.read'), validate(listPaymentsQuerySchema, 'query'), getPayments);
 router.post('/', requirePermission('payments.create'), validate(recordPaymentSchema), recordPaymentHandler);
@@ -48,5 +60,11 @@ router.post('/:id/allocate', requirePermission('payments.create'), validate(allo
 router.post('/:id/verify', requirePermission('payments.verify'), validate(verifyPaymentSchema), verifyPaymentHandler);
 router.post('/:id/fail', requirePermission('payments.verify'), validate(failPaymentSchema), failPaymentHandler);
 router.post('/:id/reverse', requirePermission('payments.reverse'), validate(reversePaymentSchema), reversePaymentHandler);
+router.post(
+  '/direct-insurer/:id/verify',
+  requirePermission('payments.verify_direct_insurer_payment'),
+  validate(verifyDirectInsurerPaymentSchema),
+  verifyDirectInsurerPaymentHandler,
+);
 
 export default router;

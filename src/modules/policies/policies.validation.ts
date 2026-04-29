@@ -23,6 +23,7 @@ export const createPolicySchema = z.object({
   policyFee: z.number().nonnegative().optional().default(0),
 
   paymentFrequency: z.enum(['ANNUAL', 'SEMI_ANNUAL', 'QUARTERLY', 'MONTHLY']).optional().default('ANNUAL'),
+  premiumCollectionMode: z.enum(['BROKER_COLLECTED', 'DIRECT_TO_INSURER', 'MIXED']).optional().default('BROKER_COLLECTED'),
 
   notes: z.string().optional().nullable(),
 });
@@ -39,6 +40,7 @@ export const updatePolicySchema = z.object({
   stampDuty: z.number().nonnegative().optional(),
   policyFee: z.number().nonnegative().optional(),
   paymentFrequency: z.enum(['ANNUAL', 'SEMI_ANNUAL', 'QUARTERLY', 'MONTHLY']).optional(),
+  premiumCollectionMode: z.enum(['BROKER_COLLECTED', 'DIRECT_TO_INSURER', 'MIXED']).optional(),
   notes: z.string().optional().nullable(),
 });
 

@@ -1,0 +1,72 @@
+C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:859
+    return new TSError(diagnosticText, diagnosticCodes, diagnostics);
+           ^
+TSError: ⨯ Unable to compile TypeScript:
+src/modules/accounting/accounting.controller.ts(272,34): error TS2339: Property 'unlinkReconciliationMatch' does not exist on type 'typeof import("C:/Users/Eddy Odhiambo/Downloads/Projects/innovasure/lako-agency/server/src/modules/accounting/accounting.service")'.
+src/modules/accounting/accounting.controller.ts(280,34): error TS2339: Property 'reallocateReconciliationMatch' does not exist on type 'typeof import("C:/Users/Eddy Odhiambo/Downloads/Projects/innovasure/lako-agency/server/src/modules/accounting/accounting.service")'.
+
+    at createTSError (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:859:12)
+    at reportTSError (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:863:19)
+    at getOutput (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:1077:36)
+    at Object.compile (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:1433:41)
+    at Module.m._compile (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:1617:30)
+    at node:internal/modules/cjs/loader:1893:10
+    at Object.require.extensions.<computed> [as .ts] (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14) {
+  diagnosticCodes: [ 2339, 2339 ]
+}
+C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:859
+    return new TSError(diagnosticText, diagnosticCodes, diagnostics);
+           ^
+TSError: ⨯ Unable to compile TypeScript:
+src/modules/accounting/accounting.service.ts(1295,7): error TS2353: Object literal may only specify known properties, and 'expense' does not exist in type 'FinanceTransactionInclude<DefaultArgs>'.
+src/modules/accounting/accounting.service.ts(1308,20): error TS2551: Property 'journalEntry' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'journalEntryId'?
+src/modules/accounting/accounting.service.ts(1309,19): error TS2551: Property 'journalEntry' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'journalEntryId'?
+src/modules/accounting/accounting.service.ts(1356,32): error TS2551: Property 'bankAccount' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'bankAccountId'?
+src/modules/accounting/accounting.service.ts(1356,72): error TS2551: Property 'mpesaAccount' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'mpesaAccountId'?
+src/modules/accounting/accounting.service.ts(1365,25): error TS2551: Property 'journalEntry' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'journalEntryId'?
+src/modules/accounting/accounting.service.ts(1366,34): error TS2551: Property 'journalEntry' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'journalEntryId'?
+src/modules/accounting/accounting.service.ts(1367,32): error TS2551: Property 'journalEntry' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'journalEntryId'?
+src/modules/accounting/accounting.service.ts(1368,29): error TS2551: Property 'journalEntry' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'journalEntryId'?
+src/modules/accounting/accounting.service.ts(1370,35): error TS2551: Property 'journalEntry' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'journalEntryId'?
+src/modules/accounting/accounting.service.ts(1370,59): error TS7006: Parameter 'line' implicitly has an 'any' type.
+src/modules/accounting/accounting.service.ts(1375,54): error TS2551: Property 'journalEntry' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'journalEntryId'?
+src/modules/accounting/accounting.service.ts(1380,28): error TS2551: Property 'expense' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'expenseId'?
+src/modules/accounting/accounting.service.ts(1382,27): error TS2551: Property 'expense' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'expenseId'?
+src/modules/accounting/accounting.service.ts(1383,38): error TS2551: Property 'expense' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'expenseId'?
+src/modules/accounting/accounting.service.ts(1384,38): error TS2551: Property 'expense' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'expenseId'?
+src/modules/accounting/accounting.service.ts(1385,65): error TS2551: Property 'expense' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'expenseId'?
+src/modules/accounting/accounting.service.ts(1388,31): error TS2551: Property 'remittance' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'remittanceId'?
+src/modules/accounting/accounting.service.ts(1390,27): error TS2551: Property 'remittance' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'remittanceId'?
+src/modules/accounting/accounting.service.ts(1391,41): error TS2551: Property 'remittance' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'remittanceId'?
+src/modules/accounting/accounting.service.ts(1392,38): error TS2551: Property 'remittance' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'remittanceId'?
+src/modules/accounting/accounting.service.ts(1393,49): error TS2551: Property 'remittance' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'remittanceId'?
+src/modules/accounting/accounting.service.ts(1395,46): error TS2551: Property 'remittance' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'remittanceId'?
+src/modules/accounting/accounting.service.ts(1396,34): error TS2551: Property 'remittance' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'remittanceId'?
+src/modules/accounting/accounting.service.ts(1399,45): error TS2551: Property 'insurerCommissionReceipt' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'insurerCommissionReceiptId'?
+src/modules/accounting/accounting.service.ts(1401,27): error TS2551: Property 'insurerCommissionReceipt' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'insurerCommissionReceiptId'?
+src/modules/accounting/accounting.service.ts(1402,38): error TS2551: Property 'insurerCommissionReceipt' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'insurerCommissionReceiptId'?
+src/modules/accounting/accounting.service.ts(1403,37): error TS2551: Property 'insurerCommissionReceipt' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'insurerCommissionReceiptId'?
+src/modules/accounting/accounting.service.ts(1404,38): error TS2551: Property 'insurerCommissionReceipt' does not exist on type '{ type: FinanceTransactionType; id: string; status: FinanceTransactionStatus; createdAt: Date; updatedAt: Date; deletedAt: Date | null; ... 25 more ...; reconciledById: string | null; }'. Did you mean 'insurerCommissionReceiptId'?
+
+    at createTSError (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:859:12)
+    at reportTSError (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:863:19)
+    at getOutput (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:1077:36)
+    at Object.compile (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:1433:41)
+    at Module.m._compile (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:1617:30)
+    at node:internal/modules/cjs/loader:1893:10
+    at Object.require.extensions.<computed> [as .ts] (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14) {
+  diagnosticCodes: [
+    2353, 2551, 2551, 2551, 2551,
+    2551, 2551, 2551, 2551, 2551,
+    7006, 2551, 2551, 2551, 2551,
+    2551, 2551, 2551, 2551, 2551,
+    2551, 2551, 2551, 2551, 2551,
+    2551, 2551, 2551, 2551
+  ]
+}

@@ -1,7 +1,15 @@
 import { prisma } from '../../config/database';
-import { CreateCommissionRuleInput, UpdateCommissionRuleInput, CalculateCommissionInput } from './commissions.validation';
+import {
+  CalculateCommissionInput,
+  CommissionClawbackInput,
+  CommissionPayInput,
+  CreateCommissionRuleInput,
+  RecordInsurerCommissionPaymentInput,
+  UpdateCommissionRuleInput,
+} from './commissions.validation';
 import { AuthRequest } from '../../types/express';
 import { Decimal } from '@prisma/client/runtime/library';
+import { postJournal, SYSTEM_ACCOUNTS } from '../accounting/postingEngine.service';
 
 function toDecimalOrNull(v: number | null | undefined): Decimal | null {
   if (v == null) return null;
@@ -179,4 +187,226 @@ export async function calculateCommission(data: CalculateCommissionInput) {
     clawbackPeriodDays: rule.clawbackPeriodDays,
     clawbackPercentage: rule.clawbackPercentage ? parseFloat(rule.clawbackPercentage.toString()) : null,
   };
+}
+
+export async function listCommissionEntries(req: AuthRequest) {
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
+  const skip = (page - 1) * limit;
+  const status = req.query.status as string | undefined;
+  const agentId = req.query.agentId as string | undefined;
+  const insurerId = req.query.insurerId as string | undefined;
+  const policyId = req.query.policyId as string | undefined;
+
+  const where: any = {
+    ...(status && { status }),
+    ...(agentId && { agentId }),
+    ...(insurerId && { insurerId }),
+    ...(policyId && { policyId }),
+  };
+
+  const [entries, total] = await Promise.all([
+    prisma.commissionEntry.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { earnedDate: 'desc' },
+      include: {
+        agent: true,
+        policy: { select: { id: true, policyNumber: true, premiumCollectionMode: true } },
+        insurer: { select: { id: true, name: true, shortName: true } },
+        product: { select: { id: true, name: true, code: true } },
+      },
+    }),
+    prisma.commissionEntry.count({ where }),
+  ]);
+
+  return { entries, total, page, limit };
+}
+
+export async function getCommissionEntryById(id: string) {
+  const entry = await prisma.commissionEntry.findUnique({
+    where: { id },
+    include: { agent: true, policy: true, insurer: true, product: true, journalEntries: true },
+  });
+  if (!entry) throw new Error('Commission entry not found');
+  return entry;
+}
+
+export async function approveCommissionEntry(id: string, userId: string, notes?: string | null) {
+  return prisma.$transaction(async (tx) => {
+    const entry = await tx.commissionEntry.findUnique({ where: { id }, include: { policy: true } });
+    if (!entry) throw new Error('Commission entry not found');
+    if (!['CALCULATED', 'PENDING_APPROVAL', 'HELD'].includes(entry.status)) throw new Error(`Cannot approve commission from ${entry.status}`);
+
+    const updated = await tx.commissionEntry.update({
+      where: { id },
+      data: { status: 'APPROVED', approvedById: userId, approvedAt: new Date(), notes: notes ?? entry.notes },
+    });
+
+    await postJournal(tx, {
+      event: 'AGENT_COMMISSION_APPROVED',
+      description: `Agent commission approved for policy ${entry.policy.policyNumber}`,
+      reference: entry.policy.policyNumber,
+      source: { commissionEntryId: id, policyId: entry.policyId, agentId: entry.agentId, insurerId: entry.insurerId ?? undefined },
+      userId,
+      lines: [
+        { accountCode: SYSTEM_ACCOUNTS.AGENT_COMMISSION_EXPENSE, debit: entry.grossCommission, description: 'Agent commission expense' },
+        { accountCode: SYSTEM_ACCOUNTS.AGENT_COMMISSION_PAYABLE, credit: entry.grossCommission, description: 'Agent commission payable' },
+      ],
+    });
+
+    return updated;
+  });
+}
+
+export async function holdCommissionEntry(id: string, reason: string) {
+  const entry = await prisma.commissionEntry.findUnique({ where: { id } });
+  if (!entry) throw new Error('Commission entry not found');
+  if (entry.status === 'PAID') throw new Error('Paid commissions cannot be held');
+  return prisma.commissionEntry.update({ where: { id }, data: { status: 'HELD', notes: reason } });
+}
+
+export async function payCommissionEntry(id: string, data: CommissionPayInput, userId: string) {
+  return prisma.$transaction(async (tx) => {
+    const entry = await tx.commissionEntry.findUnique({ where: { id }, include: { policy: true } });
+    if (!entry) throw new Error('Commission entry not found');
+    if (!['APPROVED', 'PAYABLE'].includes(entry.status)) throw new Error('Commission must be approved before payment');
+
+    const bankAmount = entry.netCommission;
+    const taxAmount = entry.withholdingTax;
+    const lines: Array<{ accountCode: string; debit?: Decimal; credit?: Decimal; description: string }> = [
+      { accountCode: SYSTEM_ACCOUNTS.AGENT_COMMISSION_PAYABLE, debit: entry.grossCommission, description: 'Settle agent commission payable' },
+      { accountCode: SYSTEM_ACCOUNTS.BANK_OPERATING, credit: bankAmount, description: 'Agent commission paid from operating account' },
+    ];
+    if (taxAmount.gt(0)) {
+      lines.push({ accountCode: SYSTEM_ACCOUNTS.WITHHOLDING_TAX_PAYABLE, credit: taxAmount, description: 'Withholding tax payable' });
+    }
+
+    await postJournal(tx, {
+      event: 'AGENT_COMMISSION_PAID',
+      entryDate: data.paidAt ? new Date(data.paidAt) : new Date(),
+      description: `Agent commission paid for policy ${entry.policy.policyNumber}`,
+      reference: data.paymentReference,
+      source: { commissionEntryId: id, policyId: entry.policyId, agentId: entry.agentId, insurerId: entry.insurerId ?? undefined },
+      userId,
+      lines,
+    });
+
+    return tx.commissionEntry.update({
+      where: { id },
+      data: {
+        status: 'PAID',
+        paidAt: data.paidAt ? new Date(data.paidAt) : new Date(),
+        paymentMethod: data.paymentMethod as any,
+        paymentReference: data.paymentReference,
+        notes: data.notes ?? entry.notes,
+      },
+    });
+  });
+}
+
+export async function clawbackCommissionEntry(id: string, data: CommissionClawbackInput, userId: string) {
+  return prisma.$transaction(async (tx) => {
+    const entry = await tx.commissionEntry.findUnique({ where: { id } });
+    if (!entry) throw new Error('Commission entry not found');
+    const clawbackAmount = data.amount ? new Decimal(data.amount) : entry.grossCommission;
+    const clawback = await tx.commissionEntry.create({
+      data: {
+        agentId: entry.agentId,
+        policyId: entry.policyId,
+        insurerId: entry.insurerId,
+        productId: entry.productId,
+        premiumAmount: entry.premiumAmount,
+        commissionBasis: entry.commissionBasis,
+        commissionRate: entry.commissionRate,
+        grossCommission: clawbackAmount.neg(),
+        grossCommissionAmount: clawbackAmount.neg(),
+        withholdingTax: new Decimal(0),
+        withholdingTaxAmount: new Decimal(0),
+        netCommission: clawbackAmount.neg(),
+        netCommissionAmount: clawbackAmount.neg(),
+        commissionType: entry.commissionType,
+        commissionSource: 'ADJUSTMENT',
+        paymentCollectionMode: entry.paymentCollectionMode,
+        settlementMode: entry.settlementMode,
+        status: 'CLAWED_BACK',
+        earnedDate: new Date(),
+        clawbackOfId: entry.id,
+        clawbackReason: data.reason,
+        notes: `Clawback of ${entry.id}: ${data.reason}`,
+      },
+    });
+    await tx.commissionEntry.update({ where: { id }, data: { status: 'CLAWED_BACK', clawbackReason: data.reason } });
+    return clawback;
+  });
+}
+
+export async function getInsurerCommissionReceivables(req: AuthRequest) {
+  const insurerId = req.query.insurerId as string | undefined;
+  const entries = await prisma.commissionEntry.findMany({
+    where: {
+      insurerCommissionStatus: { in: ['RECEIVABLE', 'PARTIALLY_RECEIVED', 'OVERDUE'] },
+      ...(insurerId && { insurerId }),
+    },
+    include: { insurer: true, policy: true, agent: true },
+    orderBy: { earnedDate: 'asc' },
+  });
+  const totalReceivable = entries.reduce((sum, entry) => sum.plus(entry.commissionReceivableAmount.minus(entry.commissionReceivedAmount)), new Decimal(0));
+  return { entries, totalReceivable };
+}
+
+async function nextInsurerCommissionReceiptNumber(): Promise<string> {
+  const year = new Date().getFullYear();
+  const startsWith = `ICR-${year}-`;
+  const count = await prisma.insurerCommissionReceipt.count({ where: { receiptNumber: { startsWith } } });
+  return `${startsWith}${String(count + 1).padStart(6, '0')}`;
+}
+
+export async function recordInsurerCommissionPayment(data: RecordInsurerCommissionPaymentInput, userId: string) {
+  return prisma.$transaction(async (tx) => {
+    const amount = new Decimal(data.amount);
+    const receipt = await tx.insurerCommissionReceipt.create({
+      data: {
+        receiptNumber: await nextInsurerCommissionReceiptNumber(),
+        insurerId: data.insurerId,
+        commissionEntryId: data.commissionEntryId ?? null,
+        amount,
+        method: data.method as any,
+        reference: data.reference ?? null,
+        receivedDate: new Date(data.receivedDate),
+        notes: data.notes ?? null,
+        createdById: userId,
+      },
+    });
+
+    if (data.commissionEntryId) {
+      const entry = await tx.commissionEntry.findUniqueOrThrow({ where: { id: data.commissionEntryId } });
+      const received = entry.commissionReceivedAmount.plus(amount);
+      const status = received.gte(entry.commissionReceivableAmount) ? 'RECEIVED' : 'PARTIALLY_RECEIVED';
+      await tx.commissionEntry.update({
+        where: { id: entry.id },
+        data: { commissionReceivedAmount: received, insurerCommissionStatus: status },
+      });
+      await tx.policy.update({
+        where: { id: entry.policyId },
+        data: { commissionReceivedAmount: { increment: amount }, insurerCommissionStatus: status },
+      });
+    }
+
+    await postJournal(tx, {
+      event: 'INSURER_COMMISSION_RECEIVED',
+      entryDate: new Date(data.receivedDate),
+      description: 'Insurer commission payment received',
+      reference: data.reference ?? receipt.receiptNumber,
+      source: { insurerId: data.insurerId, commissionEntryId: data.commissionEntryId ?? undefined },
+      userId,
+      lines: [
+        { accountCode: data.method === 'MPESA' ? SYSTEM_ACCOUNTS.MPESA_OPERATING : SYSTEM_ACCOUNTS.BANK_OPERATING, debit: amount, description: 'Commission cash received' },
+        { accountCode: SYSTEM_ACCOUNTS.COMMISSION_RECEIVABLE_INSURERS, credit: amount, description: 'Clear insurer commission receivable' },
+      ],
+    });
+
+    return receipt;
+  });
 }

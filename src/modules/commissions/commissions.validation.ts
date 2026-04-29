@@ -51,6 +51,39 @@ export const calculateCommissionSchema = z.object({
   policyDate: z.string().datetime().optional(),
 });
 
+export const commissionApprovalSchema = z.object({
+  notes: z.string().optional().nullable(),
+});
+
+export const commissionHoldSchema = z.object({
+  reason: z.string().min(3),
+});
+
+export const commissionPaySchema = z.object({
+  paymentMethod: z.enum(['MPESA', 'BANK_TRANSFER', 'CHEQUE', 'CASH', 'CARD', 'DIRECT_DEBIT']),
+  paymentReference: z.string().min(2),
+  paidAt: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
+  notes: z.string().optional().nullable(),
+});
+
+export const commissionClawbackSchema = z.object({
+  reason: z.string().min(5),
+  amount: z.number().positive().optional(),
+});
+
+export const recordInsurerCommissionPaymentSchema = z.object({
+  commissionEntryId: z.string().uuid().optional().nullable(),
+  insurerId: z.string().uuid(),
+  amount: z.number().positive(),
+  method: z.enum(['MPESA', 'BANK_TRANSFER', 'CHEQUE', 'CASH', 'CARD', 'DIRECT_DEBIT']),
+  reference: z.string().optional().nullable(),
+  receivedDate: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
+  notes: z.string().optional().nullable(),
+});
+
 export type CreateCommissionRuleInput = z.infer<typeof createCommissionRuleSchema>;
 export type UpdateCommissionRuleInput = z.infer<typeof updateCommissionRuleSchema>;
 export type CalculateCommissionInput = z.infer<typeof calculateCommissionSchema>;
+export type CommissionPayInput = z.infer<typeof commissionPaySchema>;
+export type CommissionClawbackInput = z.infer<typeof commissionClawbackSchema>;
+export type RecordInsurerCommissionPaymentInput = z.infer<typeof recordInsurerCommissionPaymentSchema>;

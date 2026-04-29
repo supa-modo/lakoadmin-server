@@ -195,6 +195,12 @@ export async function getPolicyActivationReadiness(id: string) {
       onboardingCase: { select: { id: true, caseNumber: true, status: true, memberData: true } },
       documents: { select: { id: true, type: true, name: true } },
       members: { where: { status: 'ACTIVE' }, select: { id: true } },
+      paymentAllocations: {
+        where: { reversedAt: null },
+        include: { payment: { include: { receipt: true } } },
+      },
+      directInsurerPayments: { where: { deletedAt: null } },
+      commissionEntries: { where: { status: { notIn: ['CANCELLED', 'CLAWED_BACK'] } }, select: { id: true } },
     },
   });
 
@@ -210,6 +216,16 @@ export async function getPolicyActivationReadiness(id: string) {
   const outstanding = Number(policy.outstandingAmount);
   const totalPremium = Number(policy.totalPremium);
   const paid = Number(policy.paidAmount);
+  const mode = policy.premiumCollectionMode;
+  const brokerPaid = Number(policy.brokerCollectedAmount);
+  const directPaid = Number(policy.directToInsurerAmount);
+  const hasReceipt = policy.paymentAllocations.some((allocation) => !!allocation.payment?.receipt && !allocation.payment.receipt.voidedAt);
+  const verifiedDirectPayments = policy.directInsurerPayments.filter((payment) => payment.verificationStatus === 'VERIFIED');
+  const directVerifiedAmount = verifiedDirectPayments.reduce((sum, payment) => sum + Number(payment.amount), 0);
+  const hasVerifiedDirectPayment = directVerifiedAmount > 0;
+  const directPaymentsHaveReferences = verifiedDirectPayments.every((payment) => !!payment.insurerReference);
+  const directPaymentsHaveProof = verifiedDirectPayments.every((payment) => !!payment.proofOfPaymentDocumentId || !!payment.acknowledgementDocumentId);
+  const hasCommissionReceivable = Number(policy.commissionReceivableAmount) > 0 || policy.commissionEntries.length > 0;
 
   const memberData = policy.onboardingCase?.memberData as any;
   const expectedMembers = Array.isArray(memberData?.members) ? memberData.members.length : 0;
@@ -237,15 +253,35 @@ export async function getPolicyActivationReadiness(id: string) {
       message: policy.insurer ? 'Insurer is linked.' : 'Select the underwriting insurer.',
       severity: 'required',
     },
-    {
-      key: 'premium_paid',
-      label: 'Premium payment threshold met',
-      passed: outstanding <= 0 || (totalPremium > 0 && paid >= totalPremium),
-      message: outstanding <= 0
-        ? 'Premium is fully collected.'
-        : `Outstanding premium is KES ${outstanding.toLocaleString('en-KE', { maximumFractionDigits: 0 })}.`,
-      severity: 'required',
-    },
+    mode === 'BROKER_COLLECTED'
+      ? {
+        key: 'broker_premium_paid',
+        label: 'Broker-collected premium allocated',
+        passed: outstanding <= 0 || (totalPremium > 0 && brokerPaid >= totalPremium && hasReceipt),
+        message: outstanding <= 0 && hasReceipt
+          ? 'Broker-collected premium is allocated and receipted.'
+          : `Broker-collected premium needs allocation and receipt. Outstanding KES ${outstanding.toLocaleString('en-KE', { maximumFractionDigits: 0 })}.`,
+        severity: 'required',
+      }
+      : mode === 'DIRECT_TO_INSURER'
+        ? {
+          key: 'direct_insurer_payment_verified',
+          label: 'Direct insurer payment verified',
+          passed: hasVerifiedDirectPayment && directVerifiedAmount >= totalPremium && directPaymentsHaveReferences && directPaymentsHaveProof && hasCommissionReceivable,
+          message: hasVerifiedDirectPayment
+            ? 'Direct insurer payment is verified with insurer reference and acknowledgement/proof.'
+            : 'Record and verify the direct-to-insurer premium payment, then confirm commission receivable.',
+          severity: 'required',
+        }
+        : {
+          key: 'mixed_premium_verified',
+          label: 'Mixed premium allocation complete',
+          passed: brokerPaid > 0 && hasReceipt && hasVerifiedDirectPayment && outstanding <= 0 && directPaymentsHaveReferences && hasCommissionReceivable,
+          message: outstanding <= 0
+            ? 'Broker and direct-to-insurer portions are complete.'
+            : `Mixed payment is incomplete. Outstanding KES ${outstanding.toLocaleString('en-KE', { maximumFractionDigits: 0 })}.`,
+          severity: 'required',
+        },
     {
       key: 'onboarding_approved',
       label: 'Onboarding approval complete',
@@ -337,6 +373,10 @@ export async function createPolicy(data: CreatePolicyInput, userId: string) {
       policyFee: data.policyFee ?? premiumBreakdown.policyFee,
       totalPremium: premiumBreakdown.totalPremium,
       outstandingAmount: premiumBreakdown.totalPremium,
+      totalPremiumAmount: premiumBreakdown.totalPremium,
+      outstandingPremiumAmount: premiumBreakdown.totalPremium,
+      premiumCollectionMode: (data as any).premiumCollectionMode ?? 'BROKER_COLLECTED',
+      premiumPaidTo: (data as any).premiumCollectionMode === 'DIRECT_TO_INSURER' ? 'INSURER' : 'BROKER',
       paymentFrequency: data.paymentFrequency as any,
       notes: data.notes ?? null,
       status: 'DRAFT',
@@ -378,6 +418,8 @@ export async function updatePolicy(id: string, data: UpdatePolicyInput, userId: 
       policyFee: data.policyFee ?? breakdown.policyFee,
       totalPremium: breakdown.totalPremium,
       outstandingAmount: Math.max(0, breakdown.totalPremium - Number(existing.paidAmount)),
+      totalPremiumAmount: breakdown.totalPremium,
+      outstandingPremiumAmount: Math.max(0, breakdown.totalPremium - Number(existing.paidAmount)),
     };
   }
 
@@ -390,6 +432,14 @@ export async function updatePolicy(id: string, data: UpdatePolicyInput, userId: 
       ...(data.endDate && { endDate: new Date(data.endDate) }),
       ...(data.sumInsured !== undefined && { sumInsured: data.sumInsured }),
       ...(data.paymentFrequency && { paymentFrequency: data.paymentFrequency as any }),
+      ...((data as any).premiumCollectionMode && {
+        premiumCollectionMode: (data as any).premiumCollectionMode,
+        premiumPaidTo: (data as any).premiumCollectionMode === 'DIRECT_TO_INSURER'
+          ? 'INSURER'
+          : (data as any).premiumCollectionMode === 'MIXED'
+            ? 'BOTH'
+            : 'BROKER',
+      }),
       ...(data.notes !== undefined && { notes: data.notes }),
       ...premiumFields,
     },

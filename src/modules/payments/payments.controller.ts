@@ -10,12 +10,15 @@ import {
   getPaymentById,
   getPaymentStats,
   getPolicyBalance,
+  listDirectInsurerPayments,
   listBankAccounts,
   listInvoices,
   listMpesaAccounts,
   listPayments,
+  recordDirectInsurerPayment,
   recordPayment,
   reversePayment,
+  verifyDirectInsurerPayment,
   verifyPayment,
 } from './payments.service';
 
@@ -56,6 +59,15 @@ export async function getPaymentsStats(req: AuthRequest, res: Response, next: Ne
   }
 }
 
+export async function getDirectInsurerPayments(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { payments, total, page, limit } = await listDirectInsurerPayments(req);
+    sendPaginated(res, payments, buildPaginationMeta(total, page, limit));
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getPayment(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const payment = await getPaymentById(req.params.id);
@@ -74,6 +86,33 @@ export async function recordPaymentHandler(req: AuthRequest, res: Response, next
       status: payment.status,
     });
     sendCreated(res, payment, 'Payment recorded successfully');
+  } catch (error) {
+    handlePaymentError(error, res, next);
+  }
+}
+
+export async function recordDirectInsurerPaymentHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const payment = await recordDirectInsurerPayment(req.body, req.user!.id);
+    logAudit(req, 'CREATE', 'DirectInsurerPayment', payment.id, null, {
+      policyId: payment.policyId,
+      amount: payment.amount,
+      verificationStatus: payment.verificationStatus,
+    });
+    sendCreated(res, payment, 'Direct-to-insurer payment recorded');
+  } catch (error) {
+    handlePaymentError(error, res, next);
+  }
+}
+
+export async function verifyDirectInsurerPaymentHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const payment = await verifyDirectInsurerPayment(req.params.id, req.body, req.user!.id);
+    logAudit(req, 'UPDATE', 'DirectInsurerPayment', payment.id, null, {
+      verificationStatus: payment.verificationStatus,
+      policyId: payment.policyId,
+    });
+    sendSuccess(res, payment, 'Direct-to-insurer payment verification updated');
   } catch (error) {
     handlePaymentError(error, res, next);
   }

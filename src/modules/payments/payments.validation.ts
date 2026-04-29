@@ -21,6 +21,19 @@ export const paymentStatusSchema = z.enum([
   'REFUNDED',
 ]);
 
+export const premiumCollectionModeSchema = z.enum([
+  'BROKER_COLLECTED',
+  'DIRECT_TO_INSURER',
+  'MIXED',
+]);
+
+export const directInsurerPaymentStatusSchema = z.enum([
+  'UNVERIFIED',
+  'VERIFIED',
+  'REJECTED',
+  'PARTIALLY_VERIFIED',
+]);
+
 export const paymentAllocationInputSchema = z.object({
   policyId: z.string().uuid().optional().nullable(),
   invoiceId: z.string().uuid().optional().nullable(),
@@ -34,6 +47,7 @@ export const recordPaymentSchema = z.object({
   clientId: z.string().uuid('Invalid client ID'),
   amount: z.number().positive('Payment amount must be greater than zero'),
   currency: z.string().length(3).optional().default('KES'),
+  premiumCollectionMode: premiumCollectionModeSchema.optional().default('BROKER_COLLECTED'),
   method: paymentMethodSchema,
   reference: z.string().optional().nullable(),
   transactionCode: z.string().optional().nullable(),
@@ -58,6 +72,28 @@ export const recordPaymentSchema = z.object({
 }).refine((value) => value.method !== 'MPESA' || !!value.transactionCode, {
   message: 'M-Pesa payments require a transaction code',
   path: ['transactionCode'],
+});
+
+export const recordDirectInsurerPaymentSchema = z.object({
+  policyId: z.string().uuid('Invalid policy ID'),
+  amount: z.number().positive('Payment amount must be greater than zero'),
+  currency: z.string().length(3).optional().default('KES'),
+  paymentDate: dateLike,
+  method: paymentMethodSchema,
+  insurerReference: z.string().min(2, 'Insurer reference is required'),
+  notes: z.string().optional().nullable(),
+  proofOfPaymentDocumentId: z.string().uuid().optional().nullable(),
+  verificationStatus: directInsurerPaymentStatusSchema.optional().default('UNVERIFIED'),
+  generateAcknowledgement: z.boolean().optional().default(true),
+});
+
+export const verifyDirectInsurerPaymentSchema = z.object({
+  verificationStatus: z.enum(['VERIFIED', 'REJECTED', 'PARTIALLY_VERIFIED']),
+  rejectionReason: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+}).refine((value) => value.verificationStatus !== 'REJECTED' || !!value.rejectionReason, {
+  message: 'Rejection reason is required when rejecting a direct insurer payment',
+  path: ['rejectionReason'],
 });
 
 export const allocatePaymentSchema = z.object({
@@ -106,6 +142,8 @@ export const listPaymentsQuerySchema = z.object({
 });
 
 export type RecordPaymentInput = z.infer<typeof recordPaymentSchema>;
+export type RecordDirectInsurerPaymentInput = z.infer<typeof recordDirectInsurerPaymentSchema>;
+export type VerifyDirectInsurerPaymentInput = z.infer<typeof verifyDirectInsurerPaymentSchema>;
 export type AllocatePaymentInput = z.infer<typeof allocatePaymentSchema>;
 export type ReversePaymentInput = z.infer<typeof reversePaymentSchema>;
 export type FailPaymentInput = z.infer<typeof failPaymentSchema>;

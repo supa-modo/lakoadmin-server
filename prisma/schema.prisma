@@ -210,6 +210,25 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum PremiumCollectionMode {
+  BROKER_COLLECTED
+  DIRECT_TO_INSURER
+  MIXED
+}
+
+enum PremiumPaidTo {
+  BROKER
+  INSURER
+  BOTH
+}
+
+enum DirectInsurerPaymentStatus {
+  UNVERIFIED
+  VERIFIED
+  REJECTED
+  PARTIALLY_VERIFIED
+}
+
 enum InvoiceStatus {
   DRAFT
   ISSUED
@@ -220,6 +239,10 @@ enum InvoiceStatus {
 }
 
 enum AgentType {
+  INTERNAL
+  EXTERNAL
+  PARTNER
+  REFERRAL
   EMPLOYEE
   TIED_AGENT
   INDEPENDENT_AGENT
@@ -229,16 +252,44 @@ enum AgentType {
 
 enum AgentStatus {
   ACTIVE
+  INACTIVE
   SUSPENDED
   TERMINATED
 }
 
+enum CommissionSource {
+  BROKER_COLLECTED_PREMIUM
+  DIRECT_TO_INSURER_PREMIUM
+  MANUAL
+  ADJUSTMENT
+  RENEWAL
+  ENDORSEMENT
+}
+
+enum CommissionSettlementMode {
+  DEDUCTED_AT_SOURCE
+  PAID_BY_INSURER
+  MANUAL
+}
+
+enum InsurerCommissionStatus {
+  NOT_DUE
+  RECEIVABLE
+  PARTIALLY_RECEIVED
+  RECEIVED
+  OVERDUE
+  WRITTEN_OFF
+}
+
 enum CommissionStatus {
+  DRAFT
   CALCULATED
   PENDING_APPROVAL
   APPROVED
+  PAYABLE
   HELD
   PAID
+  CANCELLED
   CLAWED_BACK
 }
 
@@ -276,12 +327,30 @@ enum JournalEntryType {
   CLOSING
 }
 
+enum PostingEventType {
+  BROKER_PREMIUM_RECEIVED
+  DIRECT_INSURER_PAYMENT_VERIFIED
+  COMMISSION_RECOGNIZED
+  INSURER_COMMISSION_RECEIVED
+  INSURER_REMITTANCE_PAID
+  AGENT_COMMISSION_APPROVED
+  AGENT_COMMISSION_PAID
+  PAYMENT_REVERSED
+  RECEIPT_VOIDED
+  REFUND_ISSUED
+  EXPENSE_RECORDED
+  EXPENSE_PAID
+  MANUAL_JOURNAL_POSTED
+}
+
 enum JournalEntryStatus {
   DRAFT
+  SUBMITTED
   PENDING_APPROVAL
   APPROVED
   POSTED
   REVERSED
+  VOIDED
 }
 
 enum ReconciliationStatus {
@@ -292,10 +361,46 @@ enum ReconciliationStatus {
 }
 
 enum MatchStatus {
+  UNRECONCILED
   UNMATCHED
   MATCHED
+  PARTIALLY_MATCHED
+  RECONCILED
+  DISPUTED
   MANUALLY_MATCHED
   EXCLUDED
+}
+
+enum FinanceTransactionType {
+  BROKER_PREMIUM_PAYMENT
+  DIRECT_INSURER_ACKNOWLEDGEMENT
+  INSURER_COMMISSION_RECEIPT
+  AGENT_COMMISSION_PAYMENT
+  EXPENSE_PAYMENT
+  INSURER_REMITTANCE
+  REFUND
+  JOURNAL_ADJUSTMENT
+  BANK_CHARGE
+  MPESA_CHARGE
+  OPENING_BALANCE
+  OTHER_INFLOW
+  OTHER_OUTFLOW
+}
+
+enum FinanceTransactionStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  POSTED
+  REVERSED
+  VOIDED
+}
+
+enum VendorStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  ARCHIVED
 }
 
 enum MessageChannel {
@@ -326,6 +431,37 @@ enum ApprovalStatus {
   APPROVED
   REJECTED
   CANCELLED
+}
+
+enum FinancialPeriodStatus {
+  OPEN
+  LOCKED
+  CLOSED
+}
+
+enum ExpenseStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  PAID
+  VOIDED
+}
+
+enum RemittanceStatus {
+  DRAFT
+  APPROVED
+  PAID
+  PARTIALLY_PAID
+  REVERSED
+  CANCELLED
+}
+
+enum RemittanceLineStatus {
+  PENDING
+  REMITTED
+  PARTIALLY_REMITTED
+  REVERSED
 }
 
 // ─────────────────────────────────────────────────────────
@@ -591,15 +727,16 @@ model Client {
 
   riskCategory String?
 
-  contacts        ClientContact[]
-  policies        Policy[]
-  claims          Claim[]
-  payments        Payment[]
-  invoices        Invoice[]
-  tasks           Task[]           @relation("ClientTasks")
-  onboardingCases OnboardingCase[]
-  lead            Lead?
-  documents       Document[]       @relation("ClientDocuments")
+  contacts              ClientContact[]
+  policies              Policy[]
+  claims                Claim[]
+  payments              Payment[]
+  directInsurerPayments DirectInsurerPayment[]
+  invoices              Invoice[]
+  tasks                 Task[]                 @relation("ClientTasks")
+  onboardingCases       OnboardingCase[]
+  lead                  Lead?
+  documents             Document[]             @relation("ClientDocuments")
 
   createdById String?
 
@@ -824,11 +961,14 @@ model Insurer {
 
   notes String?
 
-  contacts        InsurerContact[]
-  products        Product[]
-  policies        Policy[]
-  onboardingCases OnboardingCase[]
-  commissionRules CommissionRule[]
+  contacts              InsurerContact[]
+  products              Product[]
+  policies              Policy[]
+  onboardingCases       OnboardingCase[]
+  commissionRules       CommissionRule[]
+  directInsurerPayments DirectInsurerPayment[]
+  commissionEntries     CommissionEntry[]
+  insurerRemittances    InsurerRemittance[]
 
   createdById String?
 
@@ -897,10 +1037,11 @@ model Product {
 
   status ProductStatus @default(ACTIVE)
 
-  versions        ProductVersion[]
-  policies        Policy[]
-  onboardingCases OnboardingCase[]
-  commissionRules CommissionRule[]
+  versions          ProductVersion[]
+  policies          Policy[]
+  onboardingCases   OnboardingCase[]
+  commissionRules   CommissionRule[]
+  commissionEntries CommissionEntry[]
 
   createdById String?
 
@@ -1023,6 +1164,19 @@ model Policy {
   paidAmount        Decimal          @default(0) @db.Decimal(15, 2)
   outstandingAmount Decimal          @db.Decimal(15, 2)
 
+  premiumCollectionMode     PremiumCollectionMode      @default(BROKER_COLLECTED)
+  premiumPaidTo             PremiumPaidTo              @default(BROKER)
+  brokerCollectedAmount     Decimal                    @default(0) @db.Decimal(15, 2)
+  directToInsurerAmount     Decimal                    @default(0) @db.Decimal(15, 2)
+  totalPremiumAmount        Decimal                    @default(0) @db.Decimal(15, 2)
+  outstandingPremiumAmount  Decimal                    @default(0) @db.Decimal(15, 2)
+  paymentVerificationStatus DirectInsurerPaymentStatus @default(UNVERIFIED)
+
+  commissionSettlementMode   CommissionSettlementMode @default(PAID_BY_INSURER)
+  insurerCommissionStatus    InsurerCommissionStatus  @default(NOT_DUE)
+  commissionReceivableAmount Decimal                  @default(0) @db.Decimal(15, 2)
+  commissionReceivedAmount   Decimal                  @default(0) @db.Decimal(15, 2)
+
   status             PolicyStatus       @default(DRAFT)
   underwritingStatus UnderwritingStatus @default(PENDING)
 
@@ -1039,15 +1193,18 @@ model Policy {
 
   notes String?
 
-  members            PolicyMember[]
-  endorsements       PolicyEndorsement[]
-  events             PolicyEvent[]
-  documents          PolicyDocument[]
-  claims             Claim[]
-  paymentAllocations PaymentAllocation[]
-  commissionEntries  CommissionEntry[]
-  tasks              Task[]              @relation("PolicyTasks")
-  invoiceLines       InvoiceLine[]
+  members                PolicyMember[]
+  endorsements           PolicyEndorsement[]
+  events                 PolicyEvent[]
+  documents              PolicyDocument[]
+  claims                 Claim[]
+  paymentAllocations     PaymentAllocation[]
+  directInsurerPayments  DirectInsurerPayment[]
+  commissionEntries      CommissionEntry[]
+  tasks                  Task[]                  @relation("PolicyTasks")
+  invoiceLines           InvoiceLine[]
+  journalEntries         JournalEntry[]
+  insurerRemittanceLines InsurerRemittanceLine[]
 
   createdById String?
 
@@ -1064,6 +1221,8 @@ model Policy {
   @@index([status])
   @@index([endDate])
   @@index([policyNumber])
+  @@index([premiumCollectionMode])
+  @@index([insurerCommissionStatus])
   @@index([status, endDate])
   @@map("policies")
 }
@@ -1311,6 +1470,9 @@ model Payment {
   amount   Decimal @db.Decimal(15, 2)
   currency String  @default("KES")
 
+  premiumCollectionMode PremiumCollectionMode @default(BROKER_COLLECTED)
+  premiumPaidTo         PremiumPaidTo         @default(BROKER)
+
   method          PaymentMethod
   reference       String?
   transactionCode String?
@@ -1337,10 +1499,11 @@ model Payment {
 
   notes String?
 
-  allocations       PaymentAllocation[]
-  receipt           Receipt?
-  journalEntries    JournalEntry[]
-  mpesaTransactions MpesaTransaction[]
+  allocations               PaymentAllocation[]
+  receipt                   Receipt?
+  journalEntries            JournalEntry[]
+  mpesaTransactions         MpesaTransaction[]
+  insurerCommissionReceipts InsurerCommissionReceipt[]
 
   createdById String?
 
@@ -1351,10 +1514,55 @@ model Payment {
   @@index([clientId])
   @@index([status])
   @@index([paymentDate])
+  @@index([premiumCollectionMode])
   @@index([reference])
   @@index([transactionCode])
   @@index([status, paymentDate])
   @@map("payments")
+}
+
+model DirectInsurerPayment {
+  id                    String  @id @default(uuid())
+  acknowledgementNumber String? @unique
+
+  policyId String
+  policy   Policy @relation(fields: [policyId], references: [id])
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  insurerId String
+  insurer   Insurer @relation(fields: [insurerId], references: [id])
+
+  amount   Decimal @db.Decimal(15, 2)
+  currency String  @default("KES")
+
+  paymentDate      DateTime
+  method           PaymentMethod
+  insurerReference String
+  notes            String?
+
+  proofOfPaymentDocumentId  String?
+  acknowledgementDocumentId String?
+
+  verificationStatus DirectInsurerPaymentStatus @default(UNVERIFIED)
+  verifiedById       String?
+  verifiedAt         DateTime?
+  rejectionReason    String?
+
+  commissionEntryId String?
+
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([policyId])
+  @@index([clientId])
+  @@index([insurerId])
+  @@index([verificationStatus])
+  @@index([paymentDate])
+  @@map("direct_insurer_payments")
 }
 
 model PaymentAllocation {
@@ -1522,11 +1730,13 @@ model InvoiceLine {
 model Agent {
   id          String    @id @default(uuid())
   agentNumber String    @unique
+  agentCode   String?   @unique
   type        AgentType
 
   firstName  String?
   lastName   String?
   nationalId String?
+  kraPin     String?
 
   companyName        String?
   registrationNumber String?
@@ -1542,6 +1752,7 @@ model Agent {
   bankBranch        String?
   bankAccountName   String?
   bankAccountNumber String?
+  mpesaNumber       String?
 
   status AgentStatus @default(ACTIVE)
 
@@ -1553,6 +1764,7 @@ model Agent {
   user   User?   @relation(fields: [userId], references: [id])
 
   defaultCommissionRate Decimal? @db.Decimal(5, 4)
+  withholdingTaxRate    Decimal? @db.Decimal(5, 4)
 
   notes             String?
   recruitmentDate   DateTime?
@@ -1570,6 +1782,7 @@ model Agent {
   @@index([status])
   @@index([managerId])
   @@index([type])
+  @@index([agentCode])
   @@map("agents")
 }
 
@@ -1582,15 +1795,31 @@ model CommissionEntry {
   policyId String
   policy   Policy @relation(fields: [policyId], references: [id])
 
-  premiumAmount   Decimal @db.Decimal(15, 2)
-  commissionRate  Decimal @db.Decimal(5, 4)
-  grossCommission Decimal @db.Decimal(15, 2)
+  insurerId String?
+  insurer   Insurer? @relation(fields: [insurerId], references: [id])
 
-  withholdingTax  Decimal @default(0) @db.Decimal(15, 2)
-  otherDeductions Decimal @default(0) @db.Decimal(15, 2)
-  netCommission   Decimal @db.Decimal(15, 2)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
 
-  commissionType CommissionType
+  premiumAmount         Decimal  @db.Decimal(15, 2)
+  commissionRate        Decimal  @db.Decimal(5, 4)
+  grossCommission       Decimal  @db.Decimal(15, 2)
+  commissionBasis       Decimal? @db.Decimal(15, 2)
+  grossCommissionAmount Decimal? @db.Decimal(15, 2)
+
+  withholdingTax       Decimal  @default(0) @db.Decimal(15, 2)
+  withholdingTaxAmount Decimal? @db.Decimal(15, 2)
+  otherDeductions      Decimal  @default(0) @db.Decimal(15, 2)
+  netCommission        Decimal  @db.Decimal(15, 2)
+  netCommissionAmount  Decimal? @db.Decimal(15, 2)
+
+  commissionType             CommissionType
+  commissionSource           CommissionSource         @default(BROKER_COLLECTED_PREMIUM)
+  paymentCollectionMode      PremiumCollectionMode    @default(BROKER_COLLECTED)
+  settlementMode             CommissionSettlementMode @default(PAID_BY_INSURER)
+  insurerCommissionStatus    InsurerCommissionStatus  @default(NOT_DUE)
+  commissionReceivableAmount Decimal                  @default(0) @db.Decimal(15, 2)
+  commissionReceivedAmount   Decimal                  @default(0) @db.Decimal(15, 2)
 
   status CommissionStatus @default(CALCULATED)
 
@@ -1600,20 +1829,30 @@ model CommissionEntry {
   paidAt       DateTime?
 
   paymentReference String?
+  paymentMethod    PaymentMethod?
   paymentBatchId   String?
 
   clawbackOfId    String?
   clawbackReason  String?
   originalEntryId String?
+  manualOverride  Boolean @default(false)
+  overrideReason  String?
 
   notes String?
+
+  journalEntries            JournalEntry[]
+  insurerCommissionReceipts InsurerCommissionReceipt[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([agentId])
   @@index([policyId])
+  @@index([insurerId])
+  @@index([productId])
   @@index([status])
+  @@index([commissionSource])
+  @@index([insurerCommissionStatus])
   @@index([earnedDate])
   @@index([status, earnedDate])
   @@map("commission_entries")
@@ -1672,6 +1911,23 @@ model JournalEntry {
   paymentId String?
   payment   Payment? @relation(fields: [paymentId], references: [id])
 
+  policyId String?
+  policy   Policy? @relation(fields: [policyId], references: [id])
+
+  insurerId String?
+  clientId  String?
+
+  commissionEntryId String?
+  commissionEntry   CommissionEntry? @relation(fields: [commissionEntryId], references: [id])
+
+  remittanceId String?
+  remittance   InsurerRemittance? @relation(fields: [remittanceId], references: [id])
+
+  expenseId String?
+  expense   Expense? @relation(fields: [expenseId], references: [id])
+
+  agentId String?
+
   approvedById String?
   approvedAt   DateTime?
 
@@ -1682,12 +1938,19 @@ model JournalEntry {
   reversedEntry   JournalEntry? @relation("JournalReversal", fields: [reversedEntryId], references: [id])
   reversalOf      JournalEntry? @relation("JournalReversal")
 
-  fiscalYear   Int?
-  fiscalPeriod Int?
+  fiscalYear        Int?
+  fiscalPeriod      Int?
+  financialPeriodId String?
+  financialPeriod   FinancialPeriod?  @relation(fields: [financialPeriodId], references: [id])
+  postingEvent      PostingEventType?
 
   notes String?
 
-  lines JournalEntryLine[]
+  sourceKey  String? @unique
+  documentId String?
+
+  lines               JournalEntryLine[]
+  financeTransactions FinanceTransaction[]
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -1697,6 +1960,11 @@ model JournalEntry {
   @@index([status])
   @@index([entryType])
   @@index([paymentId])
+  @@index([policyId])
+  @@index([commissionEntryId])
+  @@index([remittanceId])
+  @@index([expenseId])
+  @@index([financialPeriodId])
   @@map("journal_entries")
 }
 
@@ -1739,18 +2007,24 @@ model BankAccount {
 
   ledgerAccountId String?
 
-  isActive Boolean @default(true)
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  notes String?
 
   lastReconciledDate    DateTime?
   lastReconciledBalance Decimal?  @db.Decimal(15, 2)
 
-  statements StatementUpload[]
-  payments   Payment[]
+  statements          StatementUpload[]
+  payments            Payment[]
+  financeTransactions FinanceTransaction[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  @@index([accountType])
+  @@index([isActive])
   @@map("bank_accounts")
 }
 
@@ -1760,26 +2034,94 @@ model MpesaAccount {
   accountName String
   shortCode   String
   accountType String
+  currency    String @default("KES")
 
   openingBalance Decimal @db.Decimal(15, 2)
   currentBalance Decimal @db.Decimal(15, 2)
 
   ledgerAccountId String?
 
-  isActive Boolean @default(true)
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  notes String?
 
   lastReconciledDate    DateTime?
   lastReconciledBalance Decimal?  @db.Decimal(15, 2)
 
-  statements   StatementUpload[]
-  payments     Payment[]
-  transactions MpesaTransaction[]
+  statements          StatementUpload[]
+  payments            Payment[]
+  transactions        MpesaTransaction[]
+  financeTransactions FinanceTransaction[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  @@index([accountType])
+  @@index([isActive])
   @@map("mpesa_accounts")
+}
+
+model FinanceTransaction {
+  id                String @id @default(uuid())
+  transactionNumber String @unique
+
+  type   FinanceTransactionType
+  status FinanceTransactionStatus @default(POSTED)
+
+  transactionDate DateTime
+  description     String
+  reference       String?
+
+  amount    Decimal @db.Decimal(15, 2)
+  currency  String  @default("KES")
+  direction String
+
+  bankAccountId String?
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
+
+  mpesaAccountId String?
+  mpesaAccount   MpesaAccount? @relation(fields: [mpesaAccountId], references: [id])
+
+  journalEntryId String?
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  paymentId                  String?
+  directInsurerPaymentId     String?
+  commissionEntryId          String?
+  insurerCommissionReceiptId String?
+  remittanceId               String?
+  expenseId                  String?
+  agentId                    String?
+  insurerId                  String?
+  clientId                   String?
+  policyId                   String?
+
+  reconciliationStatus MatchStatus @default(UNMATCHED)
+  reconciledAt         DateTime?
+  reconciledById       String?
+
+  documentId String?
+  notes      String?
+
+  statementMatches ReconciliationItem[]
+  reconciliationMatches ReconciliationMatch[]
+
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([transactionDate])
+  @@index([type])
+  @@index([status])
+  @@index([bankAccountId])
+  @@index([mpesaAccountId])
+  @@index([journalEntryId])
+  @@index([reconciliationStatus])
+  @@index([reference])
+  @@map("finance_transactions")
 }
 
 model StatementUpload {
@@ -1809,10 +2151,14 @@ model StatementUpload {
 
   reconciledById String?
   reconciledAt   DateTime?
+  completedById  String?
+  completedAt    DateTime?
+  uploadedById   String?
 
   notes String?
 
   items ReconciliationItem[]
+  matches ReconciliationMatch[]
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -1836,23 +2182,331 @@ model ReconciliationItem {
   isDebit         Boolean
   runningBalance  Decimal?  @db.Decimal(15, 2)
 
-  matchedPaymentId String?
-  matchStatus      MatchStatus @default(UNMATCHED)
-  matchConfidence  Decimal?    @db.Decimal(3, 2)
-  matchedAt        DateTime?
-  matchedById      String?
+  matchedPaymentId            String?
+  matchedFinanceTransactionId String?
+  matchedFinanceTransaction   FinanceTransaction? @relation(fields: [matchedFinanceTransactionId], references: [id])
+  matchedJournalEntryId       String?
+  matchedExpenseId            String?
+  matchedRemittanceId         String?
+  matchedCommissionReceiptId  String?
+  matchStatus                 MatchStatus         @default(UNMATCHED)
+  matchConfidence             Decimal?            @db.Decimal(3, 2)
+  matchedAt                   DateTime?
+  matchedById                 String?
 
   notes String?
 
   statementUpload StatementUpload @relation(fields: [statementUploadId], references: [id], onDelete: Cascade)
+  matches         ReconciliationMatch[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([statementUploadId])
+  @@index([matchedFinanceTransactionId])
   @@index([matchStatus])
   @@index([transactionDate])
   @@map("reconciliation_items")
+}
+
+model ReconciliationMatch {
+  id String @id @default(uuid())
+
+  statementUploadId String
+  statementUpload   StatementUpload @relation(fields: [statementUploadId], references: [id], onDelete: Cascade)
+
+  reconciliationItemId String
+  reconciliationItem   ReconciliationItem @relation(fields: [reconciliationItemId], references: [id], onDelete: Cascade)
+
+  financeTransactionId String
+  financeTransaction   FinanceTransaction @relation(fields: [financeTransactionId], references: [id], onDelete: Cascade)
+
+  matchedAmount Decimal @db.Decimal(15, 2)
+  matchConfidence Decimal? @db.Decimal(3, 2)
+  matchLevel      String?
+  isAuto          Boolean @default(false)
+  notes           String?
+  createdById     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([reconciliationItemId, financeTransactionId])
+  @@index([statementUploadId])
+  @@index([reconciliationItemId])
+  @@index([financeTransactionId])
+  @@map("reconciliation_matches")
+}
+
+model FinancialYear {
+  id        String                @id @default(uuid())
+  name      String                @unique
+  year      Int                   @unique
+  startDate DateTime
+  endDate   DateTime
+  status    FinancialPeriodStatus @default(OPEN)
+
+  periods FinancialPeriod[]
+
+  lockedById String?
+  lockedAt   DateTime?
+  closedById String?
+  closedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("financial_years")
+}
+
+model FinancialPeriod {
+  id String @id @default(uuid())
+
+  financialYearId String
+  financialYear   FinancialYear @relation(fields: [financialYearId], references: [id], onDelete: Cascade)
+
+  name      String
+  month     Int
+  startDate DateTime
+  endDate   DateTime
+  status    FinancialPeriodStatus @default(OPEN)
+
+  lockedById String?
+  lockedAt   DateTime?
+  closedById String?
+  closedAt   DateTime?
+
+  journalEntries JournalEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([financialYearId, month])
+  @@index([status])
+  @@index([startDate, endDate])
+  @@map("financial_periods")
+}
+
+model Vendor {
+  id String @id @default(uuid())
+
+  name          String
+  vendorType    String?
+  contactPerson String?
+  email         String?
+  phone         String?
+  kraPin        String?
+  address       String?
+  paymentTerms  String?
+
+  bankName          String?
+  bankBranch        String?
+  bankAccountName   String?
+  bankAccountNumber String?
+  mpesaNumber       String?
+
+  status   VendorStatus @default(ACTIVE)
+  isActive Boolean      @default(true)
+  notes    String?
+
+  expenses Expense[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([name])
+  @@index([status])
+  @@index([isActive])
+  @@map("vendors")
+}
+
+model ExpenseCategory {
+  id String @id @default(uuid())
+
+  name            String  @unique
+  code            String? @unique
+  ledgerAccountId String?
+  description     String?
+  isActive        Boolean @default(true)
+
+  expenses Expense[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("expense_categories")
+}
+
+model TaxCode {
+  id String @id @default(uuid())
+
+  code               String  @unique
+  name               String
+  rate               Decimal @db.Decimal(5, 4)
+  liabilityAccountId String?
+  isActive           Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("tax_codes")
+}
+
+model Expense {
+  id            String @id @default(uuid())
+  expenseNumber String @unique
+
+  vendorId String?
+  vendor   Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+
+  categoryId String
+  category   ExpenseCategory @relation(fields: [categoryId], references: [id])
+
+  expenseDate DateTime
+  dueDate     DateTime?
+  description String
+  amount      Decimal   @db.Decimal(15, 2)
+  taxAmount   Decimal   @default(0) @db.Decimal(15, 2)
+  totalAmount Decimal   @db.Decimal(15, 2)
+  currency    String    @default("KES")
+
+  status ExpenseStatus @default(DRAFT)
+
+  receiptDocumentId String?
+  bankAccountId     String?
+  mpesaAccountId    String?
+  paymentMethod     PaymentMethod?
+  paymentReference  String?
+  paidAt            DateTime?
+  paidById          String?
+  payImmediately    Boolean        @default(false)
+
+  submittedAt     DateTime?
+  submittedById   String?
+  approvedAt      DateTime?
+  approvedById    String?
+  rejectedAt      DateTime?
+  rejectedById    String?
+  rejectionReason String?
+  voidedAt        DateTime?
+  voidedById      String?
+  voidReason      String?
+
+  notes String?
+
+  journalEntries JournalEntry[]
+
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([vendorId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([expenseDate])
+  @@map("expenses")
+}
+
+model InsurerRemittance {
+  id               String @id @default(uuid())
+  remittanceNumber String @unique
+
+  insurerId String
+  insurer   Insurer @relation(fields: [insurerId], references: [id])
+
+  remittanceDate DateTime
+  dueDate        DateTime?
+
+  grossPremiumAmount       Decimal @db.Decimal(15, 2)
+  commissionDeductedAmount Decimal @default(0) @db.Decimal(15, 2)
+  netRemittanceAmount      Decimal @db.Decimal(15, 2)
+  paidAmount               Decimal @default(0) @db.Decimal(15, 2)
+
+  settlementMode CommissionSettlementMode @default(DEDUCTED_AT_SOURCE)
+  status         RemittanceStatus         @default(DRAFT)
+
+  paymentMethod    PaymentMethod?
+  paymentReference String?
+  paidAt           DateTime?
+  paidById         String?
+  adviceDocumentId String?
+
+  notes String?
+
+  lines          InsurerRemittanceLine[]
+  journalEntries JournalEntry[]
+
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([insurerId])
+  @@index([status])
+  @@index([remittanceDate])
+  @@map("insurer_remittances")
+}
+
+model InsurerRemittanceLine {
+  id String @id @default(uuid())
+
+  remittanceId String
+  remittance   InsurerRemittance @relation(fields: [remittanceId], references: [id], onDelete: Cascade)
+
+  policyId String
+  policy   Policy @relation(fields: [policyId], references: [id])
+
+  paymentAllocationId String?
+
+  grossPremiumAmount Decimal   @db.Decimal(15, 2)
+  commissionAmount   Decimal   @default(0) @db.Decimal(15, 2)
+  netPayableAmount   Decimal   @db.Decimal(15, 2)
+  remittedAmount     Decimal   @default(0) @db.Decimal(15, 2)
+  dueDate            DateTime?
+
+  status RemittanceLineStatus @default(PENDING)
+  notes  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([remittanceId])
+  @@index([policyId])
+  @@index([status])
+  @@map("insurer_remittance_lines")
+}
+
+model InsurerCommissionReceipt {
+  id            String @id @default(uuid())
+  receiptNumber String @unique
+
+  insurerId String
+  paymentId String?
+  payment   Payment? @relation(fields: [paymentId], references: [id])
+
+  commissionEntryId String?
+  commissionEntry   CommissionEntry? @relation(fields: [commissionEntryId], references: [id])
+
+  amount       Decimal       @db.Decimal(15, 2)
+  currency     String        @default("KES")
+  receivedDate DateTime
+  method       PaymentMethod
+  reference    String?
+  notes        String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([insurerId])
+  @@index([paymentId])
+  @@index([commissionEntryId])
+  @@index([receivedDate])
+  @@map("insurer_commission_receipts")
 }
 
 // ─────────────────────────────────────────────────────────
