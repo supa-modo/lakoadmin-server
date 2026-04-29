@@ -1019,12 +1019,38 @@ export async function listFinanceTransactions(req: AuthRequest) {
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = Math.min(100, parseInt(req.query.limit as string) || 30);
   const skip = (page - 1) * limit;
+  const q = String(req.query.q ?? '').trim();
+  const dateFrom = req.query.dateFrom ? new Date(String(req.query.dateFrom)) : null;
+  const dateTo = req.query.dateTo ? new Date(String(req.query.dateTo)) : null;
+  const transactionDate =
+    dateFrom || dateTo
+      ? {
+          ...(dateFrom ? { gte: dateFrom } : {}),
+          ...(dateTo ? { lte: dateTo } : {}),
+        }
+      : undefined;
   const where: Prisma.FinanceTransactionWhereInput = {
     deletedAt: null,
     ...(req.query.type && { type: req.query.type as any }),
     ...(req.query.status && { status: req.query.status as any }),
     ...(req.query.accountId && { OR: [{ bankAccountId: req.query.accountId as string }, { mpesaAccountId: req.query.accountId as string }] }),
     ...(req.query.reconciliationStatus && { reconciliationStatus: req.query.reconciliationStatus as any }),
+    ...(req.query.direction && { direction: req.query.direction as any }),
+    ...(req.query.clientId && { clientId: req.query.clientId as string }),
+    ...(req.query.insurerId && { insurerId: req.query.insurerId as string }),
+    ...(req.query.agentId && { agentId: req.query.agentId as string }),
+    ...(transactionDate && { transactionDate }),
+    ...(q
+      ? {
+          OR: [
+            { transactionNumber: { contains: q, mode: 'insensitive' } },
+            { description: { contains: q, mode: 'insensitive' } },
+            { reference: { contains: q, mode: 'insensitive' } },
+            { bankAccount: { accountName: { contains: q, mode: 'insensitive' } } },
+            { mpesaAccount: { accountName: { contains: q, mode: 'insensitive' } } },
+          ],
+        }
+      : {}),
   };
   const [transactions, total] = await Promise.all([
     prisma.financeTransaction.findMany({
@@ -1521,12 +1547,40 @@ export async function createDefaultExpenseCategories() {
 }
 
 export async function listVendors(req: AuthRequest) {
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.min(200, Math.max(10, parseInt(req.query.limit as string) || 30));
+  const skip = (page - 1) * limit;
   const status = req.query.status as string | undefined;
-  return prisma.vendor.findMany({
-    where: { deletedAt: null, ...(status && { status: status as any }) },
-    orderBy: { name: 'asc' },
-    include: { expenses: { take: 5, orderBy: { expenseDate: 'desc' } } },
-  });
+  const vendorType = req.query.vendorType as string | undefined;
+  const q = String(req.query.q ?? '').trim();
+  const where: Prisma.VendorWhereInput = {
+    deletedAt: null,
+    ...(status && { status: status as any }),
+    ...(vendorType && { vendorType }),
+    ...(q
+      ? {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { contactPerson: { contains: q, mode: 'insensitive' } },
+            { email: { contains: q, mode: 'insensitive' } },
+            { phone: { contains: q, mode: 'insensitive' } },
+            { kraPin: { contains: q, mode: 'insensitive' } },
+            { paymentTerms: { contains: q, mode: 'insensitive' } },
+          ],
+        }
+      : {}),
+  };
+  const [items, total] = await Promise.all([
+    prisma.vendor.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { name: 'asc' },
+      include: { expenses: { take: 5, orderBy: { expenseDate: 'desc' } } },
+    }),
+    prisma.vendor.count({ where }),
+  ]);
+  return { items, total, page, limit };
 }
 
 export async function createVendor(data: VendorInput) {
@@ -1788,12 +1842,39 @@ export async function createInsurerRemittance(data: CreateRemittanceInput, userI
 }
 
 export async function listInsurerRemittances(req: AuthRequest) {
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.min(200, Math.max(10, parseInt(req.query.limit as string) || 30));
+  const skip = (page - 1) * limit;
   const insurerId = req.query.insurerId as string | undefined;
-  return prisma.insurerRemittance.findMany({
-    where: { deletedAt: null, ...(insurerId && { insurerId }) },
-    include: { insurer: true, lines: { include: { policy: { include: { client: true, product: true } } } } },
-    orderBy: { remittanceDate: 'desc' },
-  });
+  const status = req.query.status as string | undefined;
+  const settlementMode = req.query.settlementMode as string | undefined;
+  const q = String(req.query.q ?? '').trim();
+  const where: Prisma.InsurerRemittanceWhereInput = {
+    deletedAt: null,
+    ...(insurerId && { insurerId }),
+    ...(status && { status: status as any }),
+    ...(settlementMode && { settlementMode: settlementMode as any }),
+    ...(q
+      ? {
+          OR: [
+            { remittanceNumber: { contains: q, mode: 'insensitive' } },
+            { paymentReference: { contains: q, mode: 'insensitive' } },
+            { insurer: { name: { contains: q, mode: 'insensitive' } } },
+          ],
+        }
+      : {}),
+  };
+  const [items, total] = await Promise.all([
+    prisma.insurerRemittance.findMany({
+      where,
+      skip,
+      take: limit,
+      include: { insurer: true, lines: { include: { policy: { include: { client: true, product: true } } } } },
+      orderBy: { remittanceDate: 'desc' },
+    }),
+    prisma.insurerRemittance.count({ where }),
+  ]);
+  return { items, total, page, limit };
 }
 
 export async function payInsurerRemittance(id: string, data: PayRemittanceInput, userId: string) {
@@ -1956,19 +2037,52 @@ export async function uploadStatement(data: StatementUploadInput, userId: string
   });
 }
 
-export async function listStatementUploads() {
+export async function listStatementUploads(req?: AuthRequest) {
+  const q = String(req?.query?.q ?? '').trim();
+  const accountId = req?.query?.accountId as string | undefined;
+  const status = req?.query?.status as string | undefined;
+  const statementType = req?.query?.statementType as string | undefined;
+  const includeItems = req?.query?.includeItems !== 'false';
+  const dateFrom = req?.query?.dateFrom ? new Date(String(req?.query?.dateFrom)) : null;
+  const dateTo = req?.query?.dateTo ? new Date(String(req?.query?.dateTo)) : null;
+  const periodStart =
+    dateFrom || dateTo
+      ? {
+          ...(dateFrom ? { gte: dateFrom } : {}),
+          ...(dateTo ? { lte: dateTo } : {}),
+        }
+      : undefined;
   const uploads: any[] = await prisma.statementUpload.findMany({
+    where: {
+      ...(accountId ? { OR: [{ bankAccountId: accountId }, { mpesaAccountId: accountId }] } : {}),
+      ...(status ? { status: status as any } : {}),
+      ...(statementType ? { statementType: statementType as any } : {}),
+      ...(periodStart ? { periodStart } : {}),
+      ...(q
+        ? {
+            OR: [
+              { fileName: { contains: q, mode: 'insensitive' } },
+              { bankAccount: { accountName: { contains: q, mode: 'insensitive' } } },
+              { mpesaAccount: { accountName: { contains: q, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
+    },
     include: {
       bankAccount: true,
       mpesaAccount: true,
-      items: {
-        take: 50,
-        orderBy: { transactionDate: 'desc' },
-        include: {
-          matchedFinanceTransaction: true,
-          matches: { include: { financeTransaction: true }, orderBy: { createdAt: 'asc' } },
-        },
-      },
+      ...(includeItems
+        ? {
+            items: {
+              take: 50,
+              orderBy: { transactionDate: 'desc' },
+              include: {
+                matchedFinanceTransaction: true,
+                matches: { include: { financeTransaction: true }, orderBy: { createdAt: 'asc' } },
+              },
+            },
+          }
+        : {}),
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -1985,12 +2099,14 @@ export async function listStatementUploads() {
   return uploads.map((upload: any) => ({
     ...upload,
     hasPendingReopenRequest: pendingReopenSet.has(upload.id),
-    items: upload.items.map((item: any) => ({
-      ...item,
-      matchedAmount: item.matches.reduce((sum: number, match: any) => sum + Number(match.matchedAmount), 0),
-      remainingAmount: Number(item.amount) - item.matches.reduce((sum: number, match: any) => sum + Number(match.matchedAmount), 0),
-      matchLevel: determineMatchLevel(asNumber(item.matchConfidence)),
-    })),
+    items: includeItems
+      ? upload.items.map((item: any) => ({
+          ...item,
+          matchedAmount: item.matches.reduce((sum: number, match: any) => sum + Number(match.matchedAmount), 0),
+          remainingAmount: Number(item.amount) - item.matches.reduce((sum: number, match: any) => sum + Number(match.matchedAmount), 0),
+          matchLevel: determineMatchLevel(asNumber(item.matchConfidence)),
+        }))
+      : [],
   }));
 }
 
@@ -2915,15 +3031,45 @@ export async function getCommissionReceivableOptions(insurerId: string) {
 }
 
 export async function getCommissionReceivables(req: AuthRequest) {
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.min(200, Math.max(10, parseInt(req.query.limit as string) || 30));
+  const skip = (page - 1) * limit;
   const insurerId = req.query.insurerId as string | undefined;
-  return prisma.commissionEntry.findMany({
-    where: {
-      ...(insurerId && { insurerId }),
-      insurerCommissionStatus: { in: ['RECEIVABLE', 'PARTIALLY_RECEIVED', 'OVERDUE', 'RECEIVED', 'WRITTEN_OFF'] },
-    },
-    include: { insurer: true, policy: { include: { client: true } }, agent: true, insurerCommissionReceipts: true },
-    orderBy: { earnedDate: 'desc' },
-  });
+  const status = req.query.status as string | undefined;
+  const q = String(req.query.q ?? '').trim();
+  const where: Prisma.CommissionEntryWhereInput = {
+    ...(insurerId && { insurerId }),
+    ...(status
+      ? { insurerCommissionStatus: status as any }
+      : {
+          insurerCommissionStatus: {
+            in: ['RECEIVABLE', 'PARTIALLY_RECEIVED', 'OVERDUE', 'RECEIVED', 'WRITTEN_OFF'],
+          },
+        }),
+    ...(q
+      ? {
+          OR: [
+            { policy: { policyNumber: { contains: q, mode: 'insensitive' } } },
+            { policy: { client: { firstName: { contains: q, mode: 'insensitive' } } } },
+            { policy: { client: { lastName: { contains: q, mode: 'insensitive' } } } },
+            { policy: { client: { companyName: { contains: q, mode: 'insensitive' } } } },
+            { insurer: { name: { contains: q, mode: 'insensitive' } } },
+            { paymentReference: { contains: q, mode: 'insensitive' } },
+          ],
+        }
+      : {}),
+  };
+  const [items, total] = await Promise.all([
+    prisma.commissionEntry.findMany({
+      where,
+      skip,
+      take: limit,
+      include: { insurer: true, policy: { include: { client: true } }, agent: true, insurerCommissionReceipts: true },
+      orderBy: { earnedDate: 'desc' },
+    }),
+    prisma.commissionEntry.count({ where }),
+  ]);
+  return { items, total, page, limit };
 }
 
 export async function recordCommissionReceipt(data: CommissionReceiptInput, userId: string) {

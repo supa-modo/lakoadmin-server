@@ -162,7 +162,10 @@ export async function seedExpenseCategoriesHandler(req: AuthRequest, res: Respon
 }
 
 export async function vendorsHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-  try { sendSuccess(res, await service.listVendors(req)); } catch (error) { next(error); }
+  try {
+    const { items, total, page, limit } = await service.listVendors(req);
+    sendPaginated(res, items, buildPaginationMeta(total, page, limit));
+  } catch (error) { next(error); }
 }
 
 export async function createVendorHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
@@ -227,7 +230,10 @@ export async function remittanceCandidatesHandler(req: AuthRequest, res: Respons
 }
 
 export async function listRemittancesHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-  try { sendSuccess(res, await service.listInsurerRemittances(req)); } catch (error) { next(error); }
+  try {
+    const { items, total, page, limit } = await service.listInsurerRemittances(req);
+    sendPaginated(res, items, buildPaginationMeta(total, page, limit));
+  } catch (error) { next(error); }
 }
 
 export async function createRemittanceHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
@@ -246,7 +252,7 @@ export async function payRemittanceHandler(req: AuthRequest, res: Response, next
 }
 
 export async function statementUploadsHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-  try { sendSuccess(res, await service.listStatementUploads()); } catch (error) { next(error); }
+  try { sendSuccess(res, await service.listStatementUploads(req)); } catch (error) { next(error); }
 }
 
 export async function uploadStatementHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
@@ -365,7 +371,10 @@ export async function reverseFinanceTransactionHandler(req: AuthRequest, res: Re
 }
 
 export async function commissionReceivablesHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-  try { sendSuccess(res, await service.getCommissionReceivables(req)); } catch (error) { next(error); }
+  try {
+    const { items, total, page, limit } = await service.getCommissionReceivables(req);
+    sendPaginated(res, items, buildPaginationMeta(total, page, limit));
+  } catch (error) { next(error); }
 }
 
 export async function commissionReceivableOptionsHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {

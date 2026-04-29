@@ -470,3 +470,340 @@
 [0mGET /api/accounting/reconciliation/statements [36m304[0m 153.429 ms - -[0m
 [0mGET /api/accounting/reconciliation/statements [36m304[0m 102.571 ms - -[0m
 [0mGET /api/accounting/transactions?limit=200 [32m200[0m 55.671 ms - 185365[0m
+[0mPOST /api/accounting/reconciliation/approvals/36cf17e2-64f8-4f3e-b52c-3d73f65f7887/approve [32m200[0m 856.592 ms - 1205[0m
+[0mGET /api/accounting/reconciliation/approvals/pending [32m200[0m 7.962 ms - 46[0m
+[0mGET /api/accounting/reconciliation/statements [32m200[0m 175.180 ms - 453549[0m
+[0mGET /api/accounting/reconciliation/reopen-approvals/pending [36m304[0m 165.839 ms - -[0m
+[0mGET /api/accounting/expenses?limit=100 [36m304[0m 40.720 ms - -[0m
+[0mGET /api/accounting/expenses?limit=100 [36m304[0m 10.412 ms - -[0m
+[0mGET /api/accounting/vendors [36m304[0m 10.582 ms - -[0m
+[0mGET /api/accounting/vendors [36m304[0m 7.628 ms - -[0m
+[0mGET /api/accounting/remittances [36m304[0m 12.756 ms - -[0m
+[0mGET /api/accounting/remittances [36m304[0m 6.226 ms - -[0m
+[0mGET /api/accounting/commission-receivables [36m304[0m 18.665 ms - -[0m
+[0mGET /api/accounting/commission-receivables [36m304[0m 7.687 ms - -[0m
+[0mGET /api/accounting/agent-payables [36m304[0m 9.354 ms - -[0m
+[0mGET /api/accounting/agent-payables [36m304[0m 5.553 ms - -[0m
+[0mGET /api/accounting/chart-of-accounts [32m200[0m 88.052 ms - 9972[0m
+[0mGET /api/accounting/chart-of-accounts [32m200[0m 72.243 ms - 9972[0m
+[0mGET /api/accounting/journals?limit=100 [32m200[0m 32.800 ms - 145963[0m
+[0mGET /api/accounting/journals?limit=100 [36m304[0m 26.298 ms - -[0m
+[0mGET /api/accounting/financial-periods [36m304[0m 5.120 ms - -[0m
+[0mGET /api/accounting/financial-periods [36m304[0m 4.542 ms - -[0m
+[0mGET /api/accounting/reports/trial-balance [32m200[0m 22.620 ms - 49827[0m
+[0mGET /api/accounting/reports/trial-balance [36m304[0m 20.595 ms - -[0m
+[0mGET /api/accounting/dashboard [32m200[0m 320.150 ms - 17289[0m
+[0mGET /api/accounting/dashboard [36m304[0m 87.499 ms - -[0m
+[0mGET /api/commissions?limit=100 [32m200[0m 61.775 ms - 156[0m
+[0mGET /api/commissions/insurer-receivables [32m200[0m 59.565 ms - 80[0m
+[0mGET /api/commissions?limit=100 [36m304[0m 9.579 ms - -[0m
+[0mGET /api/commissions/insurer-receivables [36m304[0m 10.480 ms - -[0m
+[0mGET /api/agents?limit=50 [32m200[0m 47.799 ms - 155[0m
+[0mGET /api/agents?limit=50 [36m304[0m 24.650 ms - -[0m
+[0mGET /api/payments/direct-insurer?limit=100 [32m200[0m 20.702 ms - 156[0m
+[0mGET /api/payments/direct-insurer?limit=100 [36m304[0m 5.737 ms - -[0m
+[0mGET /api/agents?limit=50 [36m304[0m 13.891 ms - -[0m
+[0mGET /api/agents?limit=50 [36m304[0m 7.760 ms - -[0m
+[0mGET /api/payments/direct-insurer?limit=100 [36m304[0m 10.498 ms - -[0m
+[0mGET /api/payments/direct-insurer?limit=100 [36m304[0m 7.010 ms - -[0m
+[0mGET /api/payments?page=1&limit=20 [36m304[0m 57.603 ms - -[0m
+[0mGET /api/payments?page=1&limit=20 [36m304[0m 67.688 ms - -[0m
+[0mGET /api/payments/stats [36m304[0m 147.178 ms - -[0m
+[0mGET /api/payments/stats [36m304[0m 17.444 ms - -[0m
+[0mGET /api/policies/stats [36m304[0m 42.691 ms - -[0m
+[0mGET /api/policies/stats [36m304[0m 11.172 ms - -[0m
+[0mGET /api/policies?page=1&limit=20 [32m200[0m 103.657 ms - 2077[0m
+[0mGET /api/policies?page=1&limit=20 [36m304[0m 57.973 ms - -[0m
+[0mGET /api/insurers?limit=100&status=ACTIVE [36m304[0m 22.422 ms - -[0m
+[0mGET /api/insurers?limit=100&status=ACTIVE [36m304[0m 12.837 ms - -[0m
+[0mGET /api/products?page=1&limit=20&search= [36m304[0m 48.351 ms - -[0m
+[0mGET /api/products?page=1&limit=20&search= [36m304[0m 16.047 ms - -[0m
+[0mGET /api/products/aad9c3a8-a0b9-4471-9e8b-556f7132976e [32m200[0m 10.763 ms - 1141[0m
+[0mGET /api/insurers?page=1&limit=24&search= [36m304[0m 9.123 ms - -[0m
+[0mGET /api/insurers?page=1&limit=24&search= [36m304[0m 7.191 ms - -[0m
+[0mGET /api/insurers/93b43d12-6deb-4fa9-ae99-e922debea9b3/contacts [36m304[0m 7.327 ms - -[0m
+[0mGET /api/tasks?page=1&limit=20 [36m304[0m 55.327 ms - -[0m
+[0mGET /api/tasks?page=1&limit=20 [36m304[0m 25.588 ms - -[0m
+[0mGET /api/tasks?page=1 [36m304[0m 10.204 ms - -[0m
+[0mGET /api/onboarding?page=1&limit=20 [36m304[0m 26.379 ms - -[0m
+[0mGET /api/onboarding?page=1&limit=20 [36m304[0m 9.515 ms - -[0m
+[0mGET /api/onboarding?page=1 [36m304[0m 6.108 ms - -[0m
+[0mGET /api/leads?page=1&limit=1 [36m304[0m 18.740 ms - -[0m
+[0mGET /api/leads?page=1&limit=1 [36m304[0m 9.859 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=NEW [36m304[0m 15.008 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=PROPOSAL_SENT [36m304[0m 17.717 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=NEGOTIATING [36m304[0m 26.259 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=NEW [36m304[0m 34.946 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=WON [36m304[0m 25.548 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=LOST [36m304[0m 25.980 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=PROPOSAL_SENT [36m304[0m 37.299 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=NEGOTIATING [36m304[0m 21.095 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=LOST [36m304[0m 12.366 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=WON [36m304[0m 19.085 ms - -[0m
+[0mGET /api/leads?page=1&limit=1 [36m304[0m 8.818 ms - -[0m
+[0mGET /api/leads?page=1&limit=1 [36m304[0m 13.972 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=NEW [36m304[0m 9.805 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=PROPOSAL_SENT [36m304[0m 11.224 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=NEGOTIATING [36m304[0m 10.521 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=WON [36m304[0m 13.397 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=LOST [36m304[0m 12.585 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=NEW [36m304[0m 17.034 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=PROPOSAL_SENT [36m304[0m 20.828 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=NEGOTIATING [36m304[0m 22.913 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=LOST [36m304[0m 14.809 ms - -[0m
+[0mGET /api/leads?page=1&limit=30&status=WON [36m304[0m 25.510 ms - -[0m
+[0mGET /api/policies/stats [36m304[0m 496.168 ms - -[0m
+[0mGET /api/payments?limit=120 [32m200[0m 490.420 ms - 2530[0m
+[0mGET /api/renewals?daysAhead=90&limit=100 [32m200[0m 506.988 ms - 156[0m
+[0mGET /api/policies/stats [36m304[0m 74.222 ms - -[0m
+[0mGET /api/renewals?daysAhead=90&limit=100 [36m304[0m 28.090 ms - -[0m
+[0mGET /api/payments?limit=120 [36m304[0m 34.992 ms - -[0m
+[0mGET /api/policies?limit=400 [32m200[0m 590.483 ms - 2078[0m
+[0mGET /api/policies?limit=400 [36m304[0m 84.663 ms - -[0m
+[0mGET /api/accounting/dashboard [36m304[0m 1144.500 ms - -[0m
+[0mGET /api/policies/stats [36m304[0m 35.598 ms - -[0m
+[0mGET /api/policies/stats [36m304[0m 34.665 ms - -[0m
+[0mGET /api/renewals?daysAhead=90&limit=100 [36m304[0m 77.382 ms - -[0m
+[0mGET /api/renewals?daysAhead=90&limit=100 [36m304[0m 15.695 ms - -[0m
+[0mGET /api/accounting/dashboard [36m304[0m 186.404 ms - -[0m
+[0mGET /api/policies?limit=400 [36m304[0m 117.244 ms - -[0m
+[0mGET /api/payments?limit=120 [36m304[0m 129.177 ms - -[0m
+[0mGET /api/policies?limit=400 [36m304[0m 104.018 ms - -[0m
+[0mGET /api/payments?limit=120 [36m304[0m 96.833 ms - -[0m
+[0mGET /api/accounting/dashboard [36m304[0m 205.113 ms - -[0m
+[0mGET /api/accounting/dashboard [36m304[0m 106.589 ms - -[0m
+[0mGET /api/accounting/dashboard [36m304[0m 479.261 ms - -[0m
+[0mGET /api/accounting/dashboard [36m304[0m 110.019 ms - -[0m
+[0mGET /api/accounting/bank-accounts [32m200[0m 14.918 ms - 2209[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 10.779 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 11.896 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 10.353 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=23d337d7-8548-4fd5-baca-c9f87e4344d3&limit=200 [32m200[0m 18.627 ms - 156[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 141.543 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=b3de942a-4acb-4e68-871a-8b4ca7ea593b&limit=200 [32m200[0m 8.391 ms - 156[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 274.239 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=b3de942a-4acb-4e68-871a-8b4ca7ea593b&limit=200 [36m304[0m 6.359 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 166.179 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 93.450 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=ff341232-8fdd-46a7-adda-4641bb9bd54f&limit=200 [32m200[0m 103.238 ms - 77486[0m
+[0mGET /api/accounting/transactions?accountId=ff341232-8fdd-46a7-adda-4641bb9bd54f&limit=200 [36m304[0m 31.522 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 175.489 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=cef69ed1-9f16-4858-a188-1d04475944e8&limit=200 [32m200[0m 18.910 ms - 28237[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 108.985 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=8dc00e49-74c8-491c-a1bc-9ed9660cef47&limit=200 [32m200[0m 45.158 ms - 192007[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 98.905 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=8dc00e49-74c8-491c-a1bc-9ed9660cef47&limit=200 [36m304[0m 55.902 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 107.159 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 419.924 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=23d337d7-8548-4fd5-baca-c9f87e4344d3&limit=200 [36m304[0m 441.480 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=23d337d7-8548-4fd5-baca-c9f87e4344d3&limit=200 [36m304[0m 6.492 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 139.353 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=ff341232-8fdd-46a7-adda-4641bb9bd54f&limit=200 [36m304[0m 36.936 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 150.753 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 15.284 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 14.122 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 242.316 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 246.433 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 13.402 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 15.423 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 5.658 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 10.161 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 9.378 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 11.362 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=8dc00e49-74c8-491c-a1bc-9ed9660cef47&limit=200 [36m304[0m 68.876 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 232.273 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=ff341232-8fdd-46a7-adda-4641bb9bd54f&limit=200 [36m304[0m 30.049 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 150.308 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=23d337d7-8548-4fd5-baca-c9f87e4344d3&limit=200 [36m304[0m 5.857 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 93.049 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=e819ce98-e106-4ff5-88fb-37ef93acc1a3&limit=200 [32m200[0m 7.246 ms - 156[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 104.114 ms - -[0m
+[0mGET /api/accounting/transactions?limit=100 [32m200[0m 404.795 ms - 185515[0m
+[0mGET /api/accounting/transactions?limit=100 [36m304[0m 77.095 ms - -[0m
+[0mGET /api/accounting/reconciliation/approvals/pending [36m304[0m 23.300 ms - -[0m
+[0mGET /api/accounting/reconciliation/approvals/pending [36m304[0m 6.559 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 175.607 ms - -[0m
+[0mGET /api/accounting/reconciliation/reopen-approvals/pending [36m304[0m 154.264 ms - -[0m
+[0mGET /api/accounting/reconciliation/reopen-approvals/pending [36m304[0m 15.141 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 248.164 ms - -[0m
+[0mGET /api/accounting/expenses?limit=100 [36m304[0m 34.661 ms - -[0m
+[0mGET /api/accounting/expenses?limit=100 [36m304[0m 10.819 ms - -[0m
+[0mGET /api/accounting/vendors [36m304[0m 59.740 ms - -[0m
+[0mGET /api/accounting/vendors [36m304[0m 18.314 ms - -[0m
+[0mGET /api/accounting/remittances [36m304[0m 20.918 ms - -[0m
+[0mGET /api/accounting/remittances [36m304[0m 8.264 ms - -[0m
+[0mGET /api/accounting/commission-receivables [36m304[0m 62.083 ms - -[0m
+[0mGET /api/accounting/commission-receivables [36m304[0m 10.890 ms - -[0m
+[0mGET /api/accounting/agent-payables [36m304[0m 18.427 ms - -[0m
+[0mGET /api/accounting/agent-payables [36m304[0m 8.756 ms - -[0m
+[0mGET /api/accounting/chart-of-accounts [32m200[0m 115.924 ms - 9972[0m
+[0mGET /api/accounting/chart-of-accounts [32m200[0m 125.658 ms - 9972[0m
+[0mGET /api/accounting/journals?limit=100 [32m200[0m 69.448 ms - 145963[0m
+[0mGET /api/accounting/journals?limit=100 [36m304[0m 54.002 ms - -[0m
+[0mGET /api/accounting/financial-periods [36m304[0m 19.286 ms - -[0m
+[0mGET /api/accounting/financial-periods [36m304[0m 5.396 ms - -[0m
+[0mGET /api/accounting/reports/trial-balance [32m200[0m 22.631 ms - 49827[0m
+[0mGET /api/accounting/reports/trial-balance [36m304[0m 17.659 ms - -[0m
+[0mGET /api/accounting/journals?limit=100 [36m304[0m 41.580 ms - -[0m
+[0mGET /api/accounting/journals?limit=100 [36m304[0m 36.188 ms - -[0m
+[0mGET /api/tasks?page=1&limit=20 [36m304[0m 64.653 ms - -[0m
+[0mGET /api/tasks?page=1&limit=20 [36m304[0m 47.001 ms - -[0m
+[0mGET /api/tasks?page=1 [36m304[0m 13.849 ms - -[0m
+[0mGET /api/payments?page=1&limit=20 [36m304[0m 84.360 ms - -[0m
+[0mGET /api/payments?page=1&limit=20 [36m304[0m 28.997 ms - -[0m
+[0mGET /api/payments/stats [36m304[0m 288.541 ms - -[0m
+[0mGET /api/payments/stats [36m304[0m 30.631 ms - -[0m
+[0mGET /api/accounting/dashboard [36m304[0m 327.151 ms - -[0m
+[0mGET /api/accounting/dashboard [36m304[0m 101.235 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 8.419 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 13.628 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 9.453 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 7.425 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=8dc00e49-74c8-491c-a1bc-9ed9660cef47&limit=200 [36m304[0m 82.973 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 149.057 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=8dc00e49-74c8-491c-a1bc-9ed9660cef47&limit=200 [36m304[0m 58.234 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 227.120 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=8dc00e49-74c8-491c-a1bc-9ed9660cef47&limit=200 [36m304[0m 66.948 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 195.764 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=23d337d7-8548-4fd5-baca-c9f87e4344d3&limit=200 [36m304[0m 463.086 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 535.222 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=e819ce98-e106-4ff5-88fb-37ef93acc1a3&limit=200 [36m304[0m 11.911 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 124.612 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=cef69ed1-9f16-4858-a188-1d04475944e8&limit=200 [36m304[0m 68.579 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 203.952 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=8dc00e49-74c8-491c-a1bc-9ed9660cef47&limit=200 [36m304[0m 160.057 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 193.307 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=b3de942a-4acb-4e68-871a-8b4ca7ea593b&limit=200 [36m304[0m 6.228 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 172.066 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=8dc00e49-74c8-491c-a1bc-9ed9660cef47&limit=200 [36m304[0m 53.309 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 210.897 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=23d337d7-8548-4fd5-baca-c9f87e4344d3&limit=200 [36m304[0m 9.667 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 280.875 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=8dc00e49-74c8-491c-a1bc-9ed9660cef47&limit=200 [36m304[0m 151.359 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 192.057 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=8dc00e49-74c8-491c-a1bc-9ed9660cef47&limit=200 [32m200[0m 52.315 ms - 192947[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 551.502 ms - -[0m
+[0mGET /api/accounting/reconciliation/approvals/pending [36m304[0m 14.324 ms - -[0m
+[0mGET /api/accounting/reconciliation/reopen-approvals/pending [36m304[0m 13.599 ms - -[0m
+[0mGET /api/accounting/reconciliation/approvals/pending [36m304[0m 12.252 ms - -[0m
+[0mGET /api/accounting/reconciliation/reopen-approvals/pending [36m304[0m 12.546 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 205.143 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 174.462 ms - -[0m
+[0mGET /api/accounting/expenses?limit=100 [36m304[0m 42.097 ms - -[0m
+[0mGET /api/accounting/expenses?limit=100 [36m304[0m 25.203 ms - -[0m
+[0mGET /api/accounting/vendors [36m304[0m 17.976 ms - -[0m
+[0mGET /api/accounting/vendors [36m304[0m 10.493 ms - -[0m
+[0mGET /api/accounting/remittances [36m304[0m 22.614 ms - -[0m
+[0mGET /api/accounting/remittances [36m304[0m 9.612 ms - -[0m
+[0mGET /api/accounting/commission-receivables [36m304[0m 30.103 ms - -[0m
+[0mGET /api/accounting/commission-receivables [36m304[0m 9.600 ms - -[0m
+[0mGET /api/accounting/agent-payables [36m304[0m 12.717 ms - -[0m
+[0mGET /api/accounting/agent-payables [36m304[0m 11.075 ms - -[0m
+[0mGET /api/accounting/chart-of-accounts [32m200[0m 142.010 ms - 9972[0m
+[0mGET /api/accounting/chart-of-accounts [32m200[0m 119.104 ms - 9972[0m
+[0mGET /api/accounting/journals?limit=100 [32m200[0m 134.520 ms - 145963[0m
+[0mGET /api/accounting/journals?limit=100 [36m304[0m 119.028 ms - -[0m
+[0mGET /api/accounting/financial-periods [36m304[0m 17.590 ms - -[0m
+[0mGET /api/accounting/financial-periods [36m304[0m 7.548 ms - -[0m
+[0mGET /api/accounting/reports/trial-balance [32m200[0m 24.848 ms - 49827[0m
+[0mGET /api/accounting/reports/trial-balance [36m304[0m 17.657 ms - -[0m
+[0mGET /api/accounting/reports/general-ledger [32m200[0m 52.535 ms - 176156[0m
+[0mGET /api/accounting/reconciliation/reopen-approvals/pending [36m304[0m 9.290 ms - -[0m
+[0mGET /api/accounting/reconciliation/approvals/pending [36m304[0m 24.400 ms - -[0m
+[0mGET /api/accounting/reconciliation/reopen-approvals/pending [36m304[0m 8.071 ms - -[0m
+[0mGET /api/accounting/reconciliation/approvals/pending [36m304[0m 10.352 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 135.415 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 113.131 ms - -[0m
+[0mGET /api/accounting/expenses?limit=100 [36m304[0m 40.363 ms - -[0m
+[0mGET /api/accounting/expenses?limit=100 [36m304[0m 18.961 ms - -[0m
+[0mGET /api/accounting/vendors [36m304[0m 20.731 ms - -[0m
+[0mGET /api/accounting/vendors [36m304[0m 10.418 ms - -[0m
+[0mGET /api/insurers?page=1&limit=24&search= [36m304[0m 43.027 ms - -[0m
+[0mGET /api/insurers?page=1&limit=24&search= [36m304[0m 35.143 ms - -[0m
+[0mGET /api/accounting/vendors [36m304[0m 24.069 ms - -[0m
+[0mGET /api/accounting/vendors [36m304[0m 15.249 ms - -[0m
+[0mGET /api/accounting/expenses?limit=100 [36m304[0m 18.751 ms - -[0m
+[0mGET /api/accounting/expenses?limit=100 [36m304[0m 13.250 ms - -[0m
+[0mGET /api/accounting/vendors [36m304[0m 11.343 ms - -[0m
+[0mGET /api/accounting/vendors [36m304[0m 13.966 ms - -[0m
+[0mGET /api/accounting/remittances [36m304[0m 22.018 ms - -[0m
+[0mGET /api/accounting/remittances [36m304[0m 9.280 ms - -[0m
+[0mGET /api/accounting/commission-receivables [36m304[0m 26.900 ms - -[0m
+[0mGET /api/accounting/commission-receivables [36m304[0m 8.375 ms - -[0m
+[0mGET /api/accounting/agent-payables [36m304[0m 15.569 ms - -[0m
+[0mGET /api/accounting/agent-payables [36m304[0m 9.332 ms - -[0m
+[0mGET /api/accounting/chart-of-accounts [32m200[0m 141.530 ms - 9972[0m
+[0mGET /api/accounting/chart-of-accounts [32m200[0m 103.489 ms - 9972[0m
+[0mGET /api/accounting/journals?limit=100 [32m200[0m 91.714 ms - 145963[0m
+[0mGET /api/accounting/journals?limit=100 [36m304[0m 51.171 ms - -[0m
+[0mGET /api/accounting/financial-periods [36m304[0m 16.695 ms - -[0m
+[0mGET /api/accounting/financial-periods [36m304[0m 5.848 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 7.512 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 7.784 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 8.998 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 6.823 ms - -[0m
+[0mGET /api/accounting/transactions?accountId=b3de942a-4acb-4e68-871a-8b4ca7ea593b&limit=200 [36m304[0m 10.287 ms - -[0m
+[0mGET /api/accounting/reconciliation/statements [36m304[0m 121.371 ms - -[0m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/server.ts`[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/server.ts`[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/server.ts`[39m
+16:47:51 [[32minfo[39m] Starting Lako Admin API Server...
+16:47:52 [[32minfo[39m] Database connected successfully
+16:47:52 [[32minfo[39m] Redis connected
+16:47:52 [[32minfo[39m] Queue initialized: email-notifications
+16:47:52 [[32minfo[39m] Queue initialized: sms-notifications
+16:47:52 [[32minfo[39m] Queue initialized: log-uploads
+16:47:52 [[32minfo[39m] Queue initialized: renewal-reminders
+16:47:52 [[32minfo[39m] Queue initialized: payment-reminders
+16:47:52 [[32minfo[39m] Queue initialized: cleanup-jobs
+16:47:52 [[33mwarn[39m] S3/Spaces credentials not set – file uploads to cloud disabled
+16:47:52 [[32minfo[39m] Workers disabled (ENABLE_WORKERS=false)
+16:47:52 [[32minfo[39m] Server running on port 5000 [development]
+16:49:42 [[34mdebug[39m] Token verification failed {"error":"jwt expired"}
+[0mGET /api/accounting/bank-accounts [33m401[0m 30.317 ms - 54[0m
+16:49:42 [[34mdebug[39m] Token verification failed {"error":"jwt expired"}
+[0mGET /api/accounting/mpesa-accounts [33m401[0m 6.119 ms - 54[0m
+[0mPOST /api/auth/refresh [32m200[0m 210.290 ms - 606[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 109.669 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 248.187 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 298.581 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 378.442 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 33.039 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 7.614 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 13.682 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 11.136 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 17.596 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 7.929 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 10.999 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 9.205 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 11.458 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 9.406 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 8.031 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 7.947 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 9.458 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 10.191 ms - -[0m
+[0mGET /api/accounting/bank-accounts [36m304[0m 10.810 ms - -[0m
+[0mGET /api/accounting/mpesa-accounts [36m304[0m 9.213 ms - -[0m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/server.ts`[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/server.ts`[39m
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/server.ts`[39m
+17:16:11 [[32minfo[39m] Starting Lako Admin API Server...
+17:16:11 [[32minfo[39m] Database connected successfully
+17:16:11 [[32minfo[39m] Redis connected
+17:16:11 [[32minfo[39m] Queue initialized: email-notifications
+17:16:11 [[32minfo[39m] Queue initialized: sms-notifications
+17:16:11 [[32minfo[39m] Queue initialized: log-uploads
+17:16:11 [[32minfo[39m] Queue initialized: renewal-reminders
+17:16:11 [[32minfo[39m] Queue initialized: payment-reminders
+17:16:11 [[32minfo[39m] Queue initialized: cleanup-jobs
+17:16:11 [[33mwarn[39m] S3/Spaces credentials not set – file uploads to cloud disabled
+17:16:11 [[32minfo[39m] Workers disabled (ENABLE_WORKERS=false)
+17:16:11 [[31merror[39m] Uncaught exception {"error":"listen EADDRINUSE: address already in use :::5000","stack":"Error: listen EADDRINUSE: address already in use :::5000\n    at Server.setupListenHandle [as _listen2] (node:net:1940:16)\n    at listenInCluster (node:net:1997:12)\n    at Server.listen (node:net:2102:7)\n    at app.listen (C:\\Users\\Eddy Odhiambo\\Downloads\\Projects\\innovasure\\lako-agency\\server\\node_modules\\express\\lib\\application.js:635:24)\n    at bootstrap (C:\\Users\\Eddy Odhiambo\\Downloads\\Projects\\innovasure\\lako-agency\\server\\src\\server.ts:29:22)\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)"}
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
