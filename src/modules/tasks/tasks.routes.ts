@@ -19,6 +19,7 @@ import {
   getTaskActivitiesHandler,
   createTaskActivityHandler,
 } from './tasks.controller';
+import { entityCommunicationsHandler } from '../communications/communications.controller';
 
 const router = Router();
 
@@ -27,6 +28,7 @@ router.use(authenticateToken);
 router.get('/', requirePermission('tasks.read'), validate(listTasksSchema, 'query'), getTasks);
 router.post('/', requirePermission('tasks.create'), validate(createTaskSchema), createTaskHandler);
 router.get('/:id', requirePermission('tasks.read'), getTask);
+router.get('/:id/communications', requirePermission('communications.read'), entityCommunicationsHandler);
 router.patch('/:id', requirePermission('tasks.update'), validate(updateTaskSchema), updateTaskHandler);
 router.post('/:id/complete', requirePermission('tasks.complete'), completeTaskHandler);
 router.post('/:id/reopen', requirePermission('tasks.update'), reopenTaskHandler);

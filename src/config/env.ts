@@ -63,6 +63,8 @@ export const env = {
 
   AT_API_KEY: optional("AT_API_KEY", ""),
   AT_USERNAME: optional("AT_USERNAME", "sandbox"),
+  AT_SENDER_ID: optional("AT_SENDER_ID", ""),
+  WHATSAPP_PROVIDER_ENABLED: optionalBool("WHATSAPP_PROVIDER_ENABLED", false),
 
   ADMIN_EMAIL: optional("ADMIN_EMAIL", "admin@lako.co.ke"),
   ADMIN_PASSWORD: optional("ADMIN_PASSWORD", "Admin@1234!"),

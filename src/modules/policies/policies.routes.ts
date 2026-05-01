@@ -42,6 +42,8 @@ import {
   createRenewalHandler,
   getRenewalsDueHandler,
 } from './policies.controller';
+import { policyClaimsHandler } from '../claims/claims.controller';
+import { entityCommunicationsHandler } from '../communications/communications.controller';
 
 const router = Router();
 
@@ -52,6 +54,8 @@ router.get('/stats', requirePermission('policies.read'), getPoliciesStats);
 router.get('/', requirePermission('policies.read'), getPolicies);
 router.post('/', requirePermission('policies.create'), validate(createPolicySchema), createPolicyHandler);
 router.get('/:id', requirePermission('policies.read'), getPolicy);
+router.get('/:id/communications', requirePermission('communications.read'), entityCommunicationsHandler);
+router.get('/:id/claims', requirePermission('claims.read'), policyClaimsHandler);
 router.get('/:id/activation-readiness', requirePermission('policies.read'), getPolicyActivationReadinessHandler);
 router.patch('/:id', requirePermission('policies.update'), validate(updatePolicySchema), updatePolicyHandler);
 router.delete('/:id', requirePermission('policies.delete'), deletePolicyHandler);

@@ -70,3 +70,29 @@ src/modules/accounting/accounting.service.ts(1404,38): error TS2551: Property 'i
     2551, 2551, 2551, 2551
   ]
 }
+C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:859
+    return new TSError(diagnosticText, diagnosticCodes, diagnostics);
+           ^
+TSError: ⨯ Unable to compile TypeScript:
+src/modules/accounting/accounting.service.ts(3053,35): error TS2322: Type '{ OR?: ({ policy: { policyNumber: { contains: string; mode: "insensitive"; }; }; } | { policy: { client: { displayName: { contains: string; mode: string; }; }; }; } | { policy: { client: { firstName: { contains: string; mode: "insensitive"; }; }; }; } | { ...; } | { ...; })[] | undefined; insurerCommissionStatus: an...' is not assignable to type 'CommissionEntryWhereInput'.
+  Types of property 'OR' are incompatible.
+    Type '({ policy: { policyNumber: { contains: string; mode: "insensitive"; }; }; } | { policy: { client: { displayName: { contains: string; mode: string; }; }; }; } | { policy: { client: { firstName: { contains: string; mode: "insensitive"; }; }; }; } | { ...; } | { ...; })[] | undefined' is not assignable to type 'CommissionEntryWhereInput[] | undefined'.
+      Type '({ policy: { policyNumber: { contains: string; mode: "insensitive"; }; }; } | { policy: { client: { displayName: { contains: string; mode: string; }; }; }; } | { policy: { client: { firstName: { contains: string; mode: "insensitive"; }; }; }; } | { ...; } | { ...; })[]' is not assignable to type 'CommissionEntryWhereInput[]'.
+        Type '{ policy: { policyNumber: { contains: string; mode: "insensitive"; }; }; } | { policy: { client: { displayName: { contains: string; mode: string; }; }; }; } | { policy: { client: { firstName: { contains: string; mode: "insensitive"; }; }; }; } | { ...; } | { ...; }' is not assignable to type 'CommissionEntryWhereInput'.
+          Types of property 'policy' are incompatible.
+            Type '{ client: { displayName: { contains: string; mode: string; }; }; }' is not assignable to type '(Without<PolicyRelationFilter, PolicyWhereInput> & PolicyWhereInput) | (Without<PolicyWhereInput, PolicyRelationFilter> & PolicyRelationFilter) | undefined'.
+              Types of property 'client' are incompatible.
+                Object literal may only specify known properties, and 'displayName' does not exist in type '(Without<ClientRelationFilter, ClientWhereInput> & ClientWhereInput) | (Without<ClientWhereInput, ClientRelationFilter> & ClientRelationFilter)'.
+
+    at createTSError (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:859:12)
+    at reportTSError (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:863:19)
+    at getOutput (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:1077:36)
+    at Object.compile (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:1433:41)
+    at Module.m._compile (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:1617:30)
+    at node:internal/modules/cjs/loader:1893:10
+    at Object.require.extensions.<computed> [as .ts] (C:\Users\Eddy Odhiambo\Downloads\Projects\innovasure\lako-agency\server\node_modules\ts-node\src\index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14) {
+  diagnosticCodes: [ 2322 ]
+}

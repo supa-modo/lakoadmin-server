@@ -5,6 +5,7 @@ import { logger } from '../utils/logger';
 export const QUEUE_NAMES = {
   EMAIL_NOTIFICATIONS: 'email-notifications',
   SMS_NOTIFICATIONS: 'sms-notifications',
+  COMMUNICATIONS: 'communications',
   LOG_UPLOADS: 'log-uploads',
   RENEWAL_REMINDERS: 'renewal-reminders',
   PAYMENT_REMINDERS: 'payment-reminders',

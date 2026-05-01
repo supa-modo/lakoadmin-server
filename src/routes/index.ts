@@ -24,6 +24,9 @@ import accountingRoutes from '../modules/accounting/accounting.routes';
 import policiesRoutes from '../modules/policies/policies.routes';
 import renewalsRoutes from '../modules/renewals/renewals.routes';
 import paymentsRoutes from '../modules/payments/payments.routes';
+import claimsRoutes from '../modules/claims/claims.routes';
+import communicationsRoutes from '../modules/communications/communications.routes';
+import notificationsRoutes from '../modules/communications/notifications.routes';
 
 const router = Router();
 
@@ -51,6 +54,9 @@ router.use('/commissions', commissionEntriesRoutes);
 router.use('/policies', policiesRoutes);
 router.use('/renewals', renewalsRoutes);
 router.use('/payments', paymentsRoutes);
+router.use('/claims', claimsRoutes);
+router.use('/communications', communicationsRoutes);
+router.use('/notifications', notificationsRoutes);
 router.use('/agents', agentsRoutes);
 router.use('/accounting', accountingRoutes);
 

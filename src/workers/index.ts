@@ -1,6 +1,9 @@
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
+import { startCommunicationWorker } from './communicationWorker';
 import { startEmailWorker } from './emailWorker';
+import { startReminderWorker } from './reminderWorker';
+import { startSmsWorker } from './smsWorker';
 import { startLogUploadWorker, scheduleDailyLogUpload } from './uploadLogs';
 
 const workers: Array<{ close: () => Promise<void> }> = [];
@@ -15,6 +18,15 @@ export async function startWorkers(): Promise<void> {
 
   const emailWorker = startEmailWorker();
   if (emailWorker) workers.push(emailWorker);
+
+  const smsWorker = startSmsWorker();
+  if (smsWorker) workers.push(smsWorker);
+
+  const communicationWorker = startCommunicationWorker();
+  if (communicationWorker) workers.push(communicationWorker);
+
+  const reminderWorker = startReminderWorker();
+  if (reminderWorker) workers.push(reminderWorker);
 
   const logUploadWorker = startLogUploadWorker();
   if (logUploadWorker) {

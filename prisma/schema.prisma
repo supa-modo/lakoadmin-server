@@ -176,19 +176,65 @@ enum ClaimStatus {
   SUBMITTED_TO_INSURER
   UNDER_REVIEW
   ADDITIONAL_INFO_REQUESTED
+  ASSESSED
   APPROVED
   PARTIALLY_APPROVED
   REJECTED
+  APPEAL
   SETTLEMENT_PENDING
+  PARTIALLY_SETTLED
   SETTLED
   CLOSED
   WITHDRAWN
+  VOIDED
 }
 
 enum ClaimPriority {
   NORMAL
   URGENT
   VIP
+}
+
+enum ClaimSeverity {
+  MINOR
+  MODERATE
+  MAJOR
+  CATASTROPHIC
+}
+
+enum ClaimRecoveryPotential {
+  NONE
+  SUBROGATION
+  SALVAGE
+  BOTH
+}
+
+enum ClaimQuerySource {
+  INSURER
+  CLIENT
+  INTERNAL
+}
+
+enum ClaimQueryStatus {
+  OPEN
+  RESPONDED
+  CLOSED
+  OVERDUE
+}
+
+enum ClaimSettlementStatus {
+  EXPECTED
+  RECEIVED
+  DISBURSED
+  PARTIAL
+  CANCELLED
+}
+
+enum ClaimSettlementRecipient {
+  CLIENT
+  SERVICE_PROVIDER
+  BROKER
+  OTHER
 }
 
 enum PaymentMethod {
@@ -408,22 +454,108 @@ enum MessageChannel {
   SMS
   WHATSAPP
   IN_APP
+  INTERNAL_NOTIFICATION
 }
 
 enum MessageStatus {
   PENDING
+  DRAFT
   QUEUED
+  SCHEDULED
+  SENDING
   SENT
   DELIVERED
   FAILED
   BOUNCED
+  CANCELLED
+  PARTIALLY_FAILED
+  READ
 }
 
 enum MessageCategory {
+  GENERAL
+  INTERNAL
+  CLIENT_WELCOME
+  ONBOARDING_DOCUMENT_REQUEST
+  POLICY_CREATED
+  POLICY_ACTIVATED
+  POLICY_RENEWAL_REMINDER
+  PAYMENT_REMINDER
+  PAYMENT_RECEIPT
+  DIRECT_INSURER_PAYMENT_ACKNOWLEDGEMENT
+  CLAIM_REGISTERED
+  CLAIM_DOCUMENT_REQUEST
+  CLAIM_SUBMITTED
+  CLAIM_STATUS_UPDATE
+  CLAIM_SETTLEMENT_UPDATE
+  TASK_REMINDER
+  COMMISSION_NOTIFICATION
+  ACCOUNTING_NOTIFICATION
+  HOLIDAY_GREETING
+  BIRTHDAY_GREETING
+  CUSTOM
   TRANSACTIONAL
   REMINDER
   MARKETING
   SYSTEM
+}
+
+enum MessageDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum MessagePriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum MessageRecipientType {
+  CLIENT
+  USER
+  CUSTOM
+  CONTACT_PERSON
+  AGENT
+}
+
+enum CommunicationCampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PARTIALLY_FAILED
+  FAILED
+  CANCELLED
+}
+
+enum CommunicationAudienceType {
+  CLIENTS
+  USERS
+  AGENTS
+  CUSTOM
+  MIXED
+}
+
+enum AutomationTriggerType {
+  CLIENT_CREATED
+  ONBOARDING_DOCUMENT_MISSING
+  POLICY_CREATED
+  POLICY_ACTIVATED
+  POLICY_RENEWAL_UPCOMING
+  PAYMENT_DUE
+  PAYMENT_RECEIVED
+  DIRECT_INSURER_PAYMENT_PENDING_VERIFICATION
+  CLAIM_REGISTERED
+  CLAIM_DOCUMENTS_MISSING
+  CLAIM_STATUS_CHANGED
+  SETTLEMENT_PENDING
+  SETTLEMENT_RECEIVED
+  TASK_DUE_SOON
+  TASK_OVERDUE
+  COMMISSION_APPROVED
+  COMMISSION_PAID
 }
 
 enum ApprovalStatus {
@@ -506,6 +638,14 @@ model User {
   taskActivities TaskActivity[]
   leadActivities LeadActivity[]
   notifications  Notification[]
+  createdMessageTemplates MessageTemplate[]         @relation("MessageTemplateCreator")
+  updatedMessageTemplates MessageTemplate[]         @relation("MessageTemplateUpdater")
+  createdMessageLogs      MessageLog[]              @relation("MessageLogCreator")
+  userMessageLogs         MessageLog[]              @relation("MessageLogUser")
+  messageRecipients       MessageRecipient[]
+  createdCampaigns        CommunicationCampaign[]   @relation("CampaignCreator")
+  communicationPreferences CommunicationPreference[]
+  createdAutomationRules  AutomationRule[]          @relation("AutomationRuleCreator")
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -737,6 +877,9 @@ model Client {
   onboardingCases       OnboardingCase[]
   lead                  Lead?
   documents             Document[]             @relation("ClientDocuments")
+  messageLogs           MessageLog[]
+  messageRecipients     MessageRecipient[]
+  communicationPreferences CommunicationPreference[]
 
   createdById String?
 
@@ -769,6 +912,7 @@ model ClientContact {
   notes String?
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  messageRecipients MessageRecipient[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -813,6 +957,7 @@ model OnboardingCase {
   documents OnboardingDocument[]
   policies  Policy[]
   tasks     Task[]               @relation("OnboardingCaseTasks")
+  messageLogs MessageLog[]
 
   createdById String?
 
@@ -893,6 +1038,7 @@ model Task {
 
   createdById String?
   createdBy   User?   @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  messageLogs MessageLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -964,6 +1110,7 @@ model Insurer {
   contacts              InsurerContact[]
   products              Product[]
   policies              Policy[]
+  claims                Claim[]
   onboardingCases       OnboardingCase[]
   commissionRules       CommissionRule[]
   directInsurerPayments DirectInsurerPayment[]
@@ -1039,6 +1186,8 @@ model Product {
 
   versions          ProductVersion[]
   policies          Policy[]
+  claims            Claim[]
+  claimRequirements ClaimDocumentRequirement[]
   onboardingCases   OnboardingCase[]
   commissionRules   CommissionRule[]
   commissionEntries CommissionEntry[]
@@ -1205,6 +1354,7 @@ model Policy {
   invoiceLines           InvoiceLine[]
   journalEntries         JournalEntry[]
   insurerRemittanceLines InsurerRemittanceLine[]
+  messageLogs            MessageLog[]
 
   createdById String?
 
@@ -1347,6 +1497,12 @@ model Claim {
   clientId String
   client   Client @relation(fields: [clientId], references: [id])
 
+  insurerId String
+  insurer   Insurer @relation(fields: [insurerId], references: [id])
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
   claimantName         String
   claimantPhone        String?
   claimantEmail        String?
@@ -1357,12 +1513,17 @@ model Claim {
   dateRegistered DateTime @default(now())
 
   lossType        String
+  lossCategory    String?
   lossDescription String
   lossLocation    String?
 
-  amountClaimed  Decimal  @db.Decimal(15, 2)
+  severity          ClaimSeverity          @default(MODERATE)
+  recoveryPotential ClaimRecoveryPotential @default(NONE)
+
+  amountClaimed  Decimal  @default(0) @db.Decimal(15, 2)
+  amountAssessed Decimal? @db.Decimal(15, 2)
   amountApproved Decimal? @db.Decimal(15, 2)
-  amountPaid     Decimal? @db.Decimal(15, 2)
+  amountPaid     Decimal  @default(0) @db.Decimal(15, 2)
   excess         Decimal? @db.Decimal(15, 2)
 
   status ClaimStatus @default(REPORTED)
@@ -1380,6 +1541,13 @@ model Claim {
   settlementReference   String?
   settlementMethod      String?
   settlementBankDetails String?
+  settlementNotes       String?
+
+  acknowledgementDueAt DateTime?
+  documentsDueAt       DateTime?
+  submissionDueAt      DateTime?
+  insurerFollowUpDueAt DateTime?
+  resolutionDueAt      DateTime?
 
   submittedToInsurerAt DateTime?
   assessedAt           DateTime?
@@ -1387,23 +1555,36 @@ model Claim {
   rejectedAt           DateTime?
   settledAt            DateTime?
   closedAt             DateTime?
+  withdrawnAt          DateTime?
+  voidedAt             DateTime?
+  voidReason           String?
 
   notes String?
 
-  activities ClaimActivity[]
-  documents  ClaimDocument[]
-  tasks      Task[]          @relation("ClaimTasks")
+  activities      ClaimActivity[]
+  documents       ClaimDocument[]
+  queries         ClaimQuery[]
+  assessments     ClaimAssessment[]
+  settlements     ClaimSettlement[]
+  statusHistories ClaimStatusHistory[]
+  tasks           Task[]               @relation("ClaimTasks")
+  messageLogs     MessageLog[]
 
   createdById String?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   @@index([policyId])
   @@index([clientId])
+  @@index([insurerId])
+  @@index([productId])
   @@index([ownerId])
   @@index([status])
   @@index([dateOfLoss])
+  @@index([dateReported])
+  @@index([priority])
   @@index([claimNumber])
   @@index([status, ownerId])
   @@map("claims")
@@ -1429,8 +1610,9 @@ model ClaimActivity {
 }
 
 model ClaimDocument {
-  id      String @id @default(uuid())
-  claimId String
+  id            String  @id @default(uuid())
+  claimId       String
+  requirementId String?
 
   type     String
   name     String
@@ -1440,20 +1622,147 @@ model ClaimDocument {
 
   status DocumentVerificationStatus @default(PENDING)
 
+  uploadedById    String?
   verifiedById    String?
   verifiedAt      DateTime?
   rejectionReason String?
 
   notes String?
 
-  claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  claim       Claim                     @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  requirement ClaimDocumentRequirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([claimId])
+  @@index([requirementId])
   @@index([status])
   @@map("claim_documents")
+}
+
+model ClaimDocumentRequirement {
+  id String @id @default(uuid())
+
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  insuranceClass InsuranceClass?
+  claimType      String?
+  lossType       String?
+  documentType   String
+  documentName   String
+  description    String?
+  isRequired     Boolean @default(true)
+  sortOrder      Int     @default(0)
+  isActive       Boolean @default(true)
+
+  documents ClaimDocument[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+  @@index([insuranceClass])
+  @@index([claimType])
+  @@index([lossType])
+  @@index([isActive])
+  @@map("claim_document_requirements")
+}
+
+model ClaimQuery {
+  id      String @id @default(uuid())
+  claimId String
+  claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  source      ClaimQuerySource
+  queryText   String
+  requestedBy String?
+  requestedAt DateTime @default(now())
+  dueDate     DateTime?
+  status      ClaimQueryStatus @default(OPEN)
+
+  responseText String?
+  respondedAt  DateTime?
+  assignedToId String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([claimId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([assignedToId])
+  @@map("claim_queries")
+}
+
+model ClaimAssessment {
+  id      String @id @default(uuid())
+  claimId String
+  claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  assessorName          String?
+  assessorCompany       String?
+  assessmentDate        DateTime
+  assessedAmount        Decimal? @db.Decimal(15, 2)
+  recommendedSettlement Decimal? @db.Decimal(15, 2)
+  reportDocumentId      String?
+  notes                 String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([claimId])
+  @@index([assessmentDate])
+  @@map("claim_assessments")
+}
+
+model ClaimSettlement {
+  id      String @id @default(uuid())
+  claimId String
+  claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  amount              Decimal  @db.Decimal(15, 2)
+  settlementDate      DateTime?
+  expectedPaymentDate DateTime?
+  paymentReceivedDate DateTime?
+  paymentMethod       String?
+  paymentReference    String?
+  paidTo              ClaimSettlementRecipient @default(CLIENT)
+  recipientName       String?
+  status              ClaimSettlementStatus    @default(EXPECTED)
+  notes               String?
+  accountingHook      Json?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([claimId])
+  @@index([status])
+  @@index([settlementDate])
+  @@index([expectedPaymentDate])
+  @@map("claim_settlements")
+}
+
+model ClaimStatusHistory {
+  id      String @id @default(uuid())
+  claimId String
+  claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  fromStatus  ClaimStatus?
+  toStatus    ClaimStatus
+  reason      String?
+  changedById String?
+  changedAt   DateTime @default(now())
+  metadata    Json?
+
+  @@index([claimId])
+  @@index([toStatus])
+  @@index([changedAt])
+  @@map("claim_status_history")
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1504,6 +1813,7 @@ model Payment {
   journalEntries            JournalEntry[]
   mpesaTransactions         MpesaTransaction[]
   insurerCommissionReceipts InsurerCommissionReceipt[]
+  messageLogs               MessageLog[]
 
   createdById String?
 
@@ -1774,6 +2084,7 @@ model Agent {
   policies          Policy[]
   commissionRules   CommissionRule[]
   commissionEntries CommissionEntry[]
+  messageRecipients MessageRecipient[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -2525,12 +2836,21 @@ model MessageTemplate {
   subject String?
   body    String
 
-  placeholders String[]
+  variables Json?
+  placeholders String[] @default([])
 
   isActive Boolean @default(true)
   isSystem Boolean @default(false)
 
+  createdById String?
+  createdBy   User?   @relation("MessageTemplateCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  updatedById String?
+  updatedBy   User?   @relation("MessageTemplateUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
   messages MessageLog[]
+  campaigns CommunicationCampaign[]
+  automationRules AutomationRule[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2538,33 +2858,75 @@ model MessageTemplate {
   @@index([channel])
   @@index([category])
   @@index([isActive])
+  @@index([createdById])
   @@map("message_templates")
 }
 
 model MessageLog {
   id String @id @default(uuid())
 
-  templateId String?
-  template   MessageTemplate? @relation(fields: [templateId], references: [id])
-
-  channel MessageChannel
-
-  recipientId      String?
-  recipientType    String?
-  recipientAddress String
+  channel   MessageChannel
+  direction MessageDirection @default(OUTBOUND)
+  messageType String @default("MANUAL")
 
   subject String?
   body    String
 
-  status MessageStatus @default(PENDING)
+  status   MessageStatus @default(DRAFT)
+  priority MessagePriority @default(NORMAL)
 
+  scheduledAt DateTime?
   queuedAt    DateTime?
   sentAt      DateTime?
   deliveredAt DateTime?
   failedAt    DateTime?
+  failureReason String?
 
-  externalId   String?
-  errorMessage String?
+  provider          String?
+  providerMessageId String?
+  providerResponse  Json?
+  recipientId       String?
+  recipientType     String?
+  recipientAddress  String?
+  externalId        String?
+  errorMessage      String?
+
+  createdById String?
+  createdBy   User?   @relation("MessageLogCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  templateId String?
+  template   MessageTemplate? @relation(fields: [templateId], references: [id])
+
+  campaignId String?
+  campaign   CommunicationCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  relatedEntityType String?
+  relatedEntityId   String?
+  entityType String?
+  entityId   String?
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  policyId String?
+  policy   Policy? @relation(fields: [policyId], references: [id], onDelete: SetNull)
+
+  claimId String?
+  claim   Claim? @relation(fields: [claimId], references: [id], onDelete: SetNull)
+
+  taskId String?
+  task   Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  onboardingCaseId String?
+  onboardingCase   OnboardingCase? @relation(fields: [onboardingCaseId], references: [id], onDelete: SetNull)
+
+  paymentId String?
+  payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  userId String?
+  user   User? @relation("MessageLogUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  recipients MessageRecipient[]
 
   attempts      Int       @default(0)
   lastAttemptAt DateTime?
@@ -2572,12 +2934,228 @@ model MessageLog {
   metadata Json?
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
-  @@index([recipientId])
   @@index([status])
   @@index([channel])
+  @@index([recipientId])
+  @@index([campaignId])
+  @@index([clientId])
+  @@index([policyId])
+  @@index([claimId])
+  @@index([taskId])
+  @@index([onboardingCaseId])
+  @@index([paymentId])
+  @@index([userId])
+  @@index([scheduledAt])
+  @@index([providerMessageId])
   @@index([createdAt])
   @@map("message_logs")
+}
+
+model MessageRecipient {
+  id String @id @default(uuid())
+
+  messageLogId String
+  messageLog   MessageLog @relation(fields: [messageLogId], references: [id], onDelete: Cascade)
+
+  recipientType MessageRecipientType
+  recipientName String?
+  email         String?
+  phone         String?
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  userId String?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  agentId String?
+  agent   Agent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  contactPersonId String?
+  contactPerson   ClientContact? @relation(fields: [contactPersonId], references: [id], onDelete: SetNull)
+
+  status MessageStatus @default(QUEUED)
+  sentAt DateTime?
+  deliveredAt DateTime?
+  failedAt DateTime?
+  failureReason String?
+  providerMessageId String?
+  providerResponse Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([messageLogId])
+  @@index([recipientType])
+  @@index([clientId])
+  @@index([userId])
+  @@index([agentId])
+  @@index([status])
+  @@index([providerMessageId])
+  @@map("message_recipients")
+}
+
+model CommunicationCampaign {
+  id String @id @default(uuid())
+
+  name String
+  description String
+  channel MessageChannel
+  category MessageCategory
+  audienceType CommunicationAudienceType
+  status CommunicationCampaignStatus @default(DRAFT)
+
+  templateId String?
+  template   MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  subject String?
+  body String
+  filters Json?
+
+  scheduledAt DateTime?
+  sentAt DateTime?
+
+  createdById String?
+  createdBy   User? @relation("CampaignCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  totalRecipients Int @default(0)
+  successfulCount Int @default(0)
+  failedCount     Int @default(0)
+
+  messages MessageLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([channel])
+  @@index([category])
+  @@index([audienceType])
+  @@index([status])
+  @@index([templateId])
+  @@index([createdById])
+  @@index([scheduledAt])
+  @@index([createdAt])
+  @@map("communication_campaigns")
+}
+
+model CommunicationPreference {
+  id String @id @default(uuid())
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  channel MessageChannel
+  category MessageCategory
+  isOptedIn Boolean @default(true)
+  optedOutAt DateTime?
+  reason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clientId, channel, category])
+  @@unique([userId, channel, category])
+  @@index([clientId])
+  @@index([userId])
+  @@index([channel])
+  @@index([category])
+  @@map("communication_preferences")
+}
+
+model AutomationRule {
+  id String @id @default(uuid())
+
+  name String
+  triggerType AutomationTriggerType
+  channel MessageChannel
+
+  templateId String?
+  template   MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  isActive Boolean @default(true)
+  conditions Json?
+  scheduleConfig Json?
+  recipientConfig Json?
+
+  createdById String?
+  createdBy   User? @relation("AutomationRuleCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([triggerType])
+  @@index([channel])
+  @@index([templateId])
+  @@index([isActive])
+  @@map("automation_rules")
+}
+
+model InboundMessage {
+  id String @id @default(uuid())
+
+  channel MessageChannel
+  fromAddress String
+  toAddress String?
+  body String
+  provider String?
+  providerMessageId String?
+  providerResponse Json?
+  matchedClientId String?
+  relatedEntityType String?
+  relatedEntityId String?
+
+  receivedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([channel])
+  @@index([fromAddress])
+  @@index([matchedClientId])
+  @@index([providerMessageId])
+  @@index([receivedAt])
+  @@map("inbound_messages")
+}
+
+model WhatsAppSession {
+  id String @id @default(uuid())
+
+  phone String
+  clientId String?
+  provider String?
+  status String @default("PENDING")
+  lastMessageAt DateTime?
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([phone])
+  @@index([clientId])
+  @@index([status])
+  @@map("whatsapp_sessions")
+}
+
+model WebhookEvent {
+  id String @id @default(uuid())
+
+  provider String
+  eventType String
+  providerEventId String?
+  payload Json
+  processedAt DateTime?
+  failureReason String?
+
+  createdAt DateTime @default(now())
+
+  @@index([provider])
+  @@index([eventType])
+  @@index([providerEventId])
+  @@index([processedAt])
+  @@map("webhook_events")
 }
 
 model Notification {
@@ -2590,6 +3168,8 @@ model Notification {
   message String
   type    String
 
+  relatedEntityType String?
+  relatedEntityId   String?
   entityType String?
   entityId   String?
 
@@ -2599,10 +3179,12 @@ model Notification {
   readAt DateTime?
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@index([userId])
   @@index([isRead])
   @@index([createdAt])
+  @@index([relatedEntityType, relatedEntityId])
   @@map("notifications")
 }
 

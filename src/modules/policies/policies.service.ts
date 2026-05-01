@@ -146,6 +146,15 @@ export async function getPolicyById(id: string) {
       agent: { select: { id: true, firstName: true, lastName: true, phone: true, email: true } },
       renewedFrom: { select: { id: true, policyNumber: true, endDate: true } },
       renewedTo: { select: { id: true, policyNumber: true, startDate: true, status: true } },
+      claims: {
+        where: { deletedAt: null },
+        take: 10,
+        orderBy: { dateReported: 'desc' },
+        include: {
+          client: { select: { id: true, clientNumber: true, firstName: true, lastName: true, companyName: true, tradingName: true } },
+          policy: { select: { id: true, policyNumber: true } },
+        },
+      },
       _count: { select: { members: true, endorsements: true, documents: true, claims: true, events: true } },
     },
   });

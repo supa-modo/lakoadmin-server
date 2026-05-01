@@ -85,6 +85,16 @@ const PERMISSIONS = [
   { name: 'claims.update', module: 'claims', action: 'update', description: 'Update claims' },
   { name: 'claims.delete', module: 'claims', action: 'delete', description: 'Delete claims' },
   { name: 'claims.approve', module: 'claims', action: 'approve', description: 'Approve/reject claims' },
+  { name: 'claims.assign', module: 'claims', action: 'assign', description: 'Assign claims to owners' },
+  { name: 'claims.status.update', module: 'claims', action: 'status.update', description: 'Update claim workflow status' },
+  { name: 'claims.submit_to_insurer', module: 'claims', action: 'submit_to_insurer', description: 'Submit claims to insurers' },
+  { name: 'claims.documents.upload', module: 'claims', action: 'documents.upload', description: 'Upload claim documents' },
+  { name: 'claims.documents.verify', module: 'claims', action: 'documents.verify', description: 'Verify or reject claim documents' },
+  { name: 'claims.assessment.manage', module: 'claims', action: 'assessment.manage', description: 'Manage claim assessments' },
+  { name: 'claims.settlement.manage', module: 'claims', action: 'settlement.manage', description: 'Manage claim settlements' },
+  { name: 'claims.close', module: 'claims', action: 'close', description: 'Close claims' },
+  { name: 'claims.reports.read', module: 'claims', action: 'reports.read', description: 'View claims reports and dashboards' },
+  { name: 'claims.override_policy_eligibility', module: 'claims', action: 'override_policy_eligibility', description: 'Override policy eligibility warnings during claim registration' },
 
   // Payments
   { name: 'payments.read', module: 'payments', action: 'read', description: 'View payments' },
@@ -159,12 +169,142 @@ const PERMISSIONS = [
   { name: 'documents.read', module: 'documents', action: 'read', description: 'View documents' },
   { name: 'documents.create', module: 'documents', action: 'create', description: 'Upload documents' },
   { name: 'documents.delete', module: 'documents', action: 'delete', description: 'Delete documents' },
+
+  // Communications & Automation
+  { name: 'communications.read', module: 'communications', action: 'read', description: 'View communications center and entity timelines' },
+  { name: 'communications.send', module: 'communications', action: 'send', description: 'Send individual communications' },
+  { name: 'communications.send_bulk', module: 'communications', action: 'send_bulk', description: 'Send bulk communications and campaigns' },
+  { name: 'communications.schedule', module: 'communications', action: 'schedule', description: 'Schedule communications' },
+  { name: 'communications.templates.read', module: 'communications', action: 'templates.read', description: 'View message templates' },
+  { name: 'communications.templates.create', module: 'communications', action: 'templates.create', description: 'Create message templates' },
+  { name: 'communications.templates.update', module: 'communications', action: 'templates.update', description: 'Update message templates' },
+  { name: 'communications.templates.delete', module: 'communications', action: 'templates.delete', description: 'Archive message templates' },
+  { name: 'communications.campaigns.read', module: 'communications', action: 'campaigns.read', description: 'View communication campaigns' },
+  { name: 'communications.campaigns.create', module: 'communications', action: 'campaigns.create', description: 'Create communication campaigns' },
+  { name: 'communications.campaigns.send', module: 'communications', action: 'campaigns.send', description: 'Send or cancel communication campaigns' },
+  { name: 'communications.automations.manage', module: 'communications', action: 'automations.manage', description: 'Manage automation rules' },
+  { name: 'communications.settings.manage', module: 'communications', action: 'settings.manage', description: 'Manage communication settings and preferences' },
+  { name: 'communications.logs.read', module: 'communications', action: 'logs.read', description: 'View delivery logs' },
+  { name: 'notifications.read', module: 'notifications', action: 'read', description: 'Read in-app notifications' },
+  { name: 'notifications.manage', module: 'notifications', action: 'manage', description: 'Manage in-app notifications' },
 ];
 
 // ─────────────────────────────────────────────────────────
 // ROLES definition
 // ─────────────────────────────────────────────────────────
 const ALL_PERMS = PERMISSIONS.map((p) => p.name);
+
+const CLAIM_DOCUMENT_REQUIREMENTS = [
+  ['MOTOR_PRIVATE', 'MOTOR_ACCIDENT', 'ACCIDENT', 'CLAIM_FORM', 'Claim form', 'Completed motor accident claim form.'],
+  ['MOTOR_PRIVATE', 'MOTOR_ACCIDENT', 'ACCIDENT', 'POLICE_ABSTRACT', 'Police abstract', 'Police abstract or OB number.'],
+  ['MOTOR_PRIVATE', 'MOTOR_ACCIDENT', 'ACCIDENT', 'DRIVING_LICENSE', 'Driving license', 'Driver license copy.'],
+  ['MOTOR_PRIVATE', 'MOTOR_ACCIDENT', 'ACCIDENT', 'PHOTOS', 'Accident photos', 'Photos showing damage and scene.'],
+  ['MOTOR_PRIVATE', 'MOTOR_ACCIDENT', 'ACCIDENT', 'REPAIR_ESTIMATE', 'Repair estimate', 'Garage assessment or estimate.'],
+  ['MOTOR_PRIVATE', 'MOTOR_THEFT', 'THEFT', 'CLAIM_FORM', 'Claim form', 'Completed motor theft claim form.'],
+  ['MOTOR_PRIVATE', 'MOTOR_THEFT', 'THEFT', 'POLICE_REPORT', 'Police report', 'Police report for theft incident.'],
+  ['MOTOR_PRIVATE', 'MOTOR_THEFT', 'THEFT', 'LOGBOOK', 'Vehicle logbook', 'Vehicle ownership/logbook copy.'],
+  ['MOTOR_PRIVATE', 'MOTOR_THEFT', 'THEFT', 'KEYS_CONFIRMATION', 'Keys confirmation', 'Original/spare keys confirmation.'],
+  ['FIRE_DOMESTIC', 'PROPERTY_FIRE', 'FIRE', 'CLAIM_FORM', 'Claim form', 'Completed property claim form.'],
+  ['FIRE_DOMESTIC', 'PROPERTY_FIRE', 'FIRE', 'FIRE_BRIGADE_REPORT', 'Fire brigade report', 'Fire brigade report where applicable.'],
+  ['FIRE_DOMESTIC', 'PROPERTY_FIRE', 'FIRE', 'PHOTOS', 'Loss photos', 'Photos of damaged property.'],
+  ['FIRE_DOMESTIC', 'PROPERTY_FIRE', 'FIRE', 'REPLACEMENT_ESTIMATE', 'Repair/replacement estimates', 'Repair or replacement quotations.'],
+  ['MEDICAL_COMPREHENSIVE', 'MEDICAL', 'ILLNESS', 'CLAIM_FORM', 'Claim form', 'Completed medical claim form.'],
+  ['MEDICAL_COMPREHENSIVE', 'MEDICAL', 'ILLNESS', 'MEDICAL_REPORT', 'Medical report', 'Doctor or hospital medical report.'],
+  ['MEDICAL_COMPREHENSIVE', 'MEDICAL', 'ILLNESS', 'INVOICES', 'Hospital invoices', 'Hospital/clinic invoices.'],
+  ['MEDICAL_COMPREHENSIVE', 'MEDICAL', 'ILLNESS', 'RECEIPTS', 'Receipts', 'Payment receipts for reimbursement.'],
+  ['LIFE_ORDINARY', 'LIFE_DEATH', 'DEATH', 'CLAIM_FORM', 'Claim form', 'Completed life/death claim form.'],
+  ['LIFE_ORDINARY', 'LIFE_DEATH', 'DEATH', 'DEATH_CERTIFICATE', 'Death certificate', 'Official death certificate.'],
+  ['LIFE_ORDINARY', 'LIFE_DEATH', 'DEATH', 'BURIAL_PERMIT', 'Burial permit', 'Burial permit where required.'],
+  ['LIFE_ORDINARY', 'LIFE_DEATH', 'DEATH', 'BENEFICIARY_ID', 'Beneficiary ID', 'Beneficiary identification document.'],
+  [null, 'GENERAL', 'OTHER', 'CLAIM_FORM', 'Claim form', 'Completed insurer claim form.'],
+  [null, 'GENERAL', 'OTHER', 'SUPPORTING_EVIDENCE', 'Supporting evidence', 'Documents supporting the claim event and amount.'],
+] as const;
+
+const DEFAULT_MESSAGE_TEMPLATES = [
+  {
+    code: 'CLIENT_WELCOME_EMAIL',
+    name: 'Client welcome email',
+    channel: 'EMAIL',
+    category: 'CLIENT_WELCOME',
+    subject: 'Welcome to {{companyName}}, {{clientName}}',
+    body: 'Dear {{clientName}},\n\nWelcome to {{companyName}}. Our team is ready to support your insurance needs with clear advice, timely service, and proactive follow-up.\n\nRegards,\n{{companyName}}',
+    variables: { clientName: '', companyName: 'Lako Insurance Agency' },
+  },
+  {
+    code: 'ONBOARDING_DOCUMENT_REQUEST_SMS',
+    name: 'Onboarding document request SMS',
+    channel: 'SMS',
+    category: 'ONBOARDING_DOCUMENT_REQUEST',
+    subject: null,
+    body: 'Dear {{clientName}}, please share the pending onboarding documents for your insurance setup. {{companyName}}',
+    variables: { clientName: '', companyName: 'Lako Insurance Agency' },
+  },
+  {
+    code: 'POLICY_ACTIVATED_EMAIL',
+    name: 'Policy activation confirmation',
+    channel: 'EMAIL',
+    category: 'POLICY_ACTIVATED',
+    subject: 'Policy {{policyNumber}} is now active',
+    body: 'Dear {{clientName}},\n\nYour {{productName}} policy {{policyNumber}} with {{insurerName}} is now active. Please contact us if you need clarification on benefits, endorsements, claims, or renewals.\n\nRegards,\n{{companyName}}',
+    variables: { clientName: '', policyNumber: '', productName: '', insurerName: '', companyName: 'Lako Insurance Agency' },
+  },
+  {
+    code: 'POLICY_RENEWAL_REMINDER_SMS',
+    name: 'Policy renewal reminder SMS',
+    channel: 'SMS',
+    category: 'POLICY_RENEWAL_REMINDER',
+    subject: null,
+    body: 'Reminder: Policy {{policyNumber}} expires on {{dueDate}}. Contact {{companyName}} to renew in good time.',
+    variables: { policyNumber: '', dueDate: '', companyName: 'Lako Insurance Agency' },
+  },
+  {
+    code: 'PAYMENT_REMINDER_EMAIL',
+    name: 'Premium payment reminder',
+    channel: 'EMAIL',
+    category: 'PAYMENT_REMINDER',
+    subject: 'Payment reminder for policy {{policyNumber}}',
+    body: 'Dear {{clientName}},\n\nThis is a reminder that KES {{amount}} remains outstanding for policy {{policyNumber}}. Please make payment or share proof of payment for allocation.\n\nRegards,\n{{companyName}}',
+    variables: { clientName: '', amount: '', policyNumber: '', companyName: 'Lako Insurance Agency' },
+  },
+  {
+    code: 'CLAIM_REGISTERED_EMAIL',
+    name: 'Claim registration acknowledgement',
+    channel: 'EMAIL',
+    category: 'CLAIM_REGISTERED',
+    subject: 'Claim {{claimNumber}} has been registered',
+    body: 'Dear {{clientName}},\n\nWe have registered claim {{claimNumber}} and our claims team will keep you updated. Kindly provide any pending documents requested by the team.\n\nRegards,\n{{companyName}}',
+    variables: { clientName: '', claimNumber: '', companyName: 'Lako Insurance Agency' },
+  },
+  {
+    code: 'CLAIM_DOCUMENT_REQUEST_SMS',
+    name: 'Claim document request SMS',
+    channel: 'SMS',
+    category: 'CLAIM_DOCUMENT_REQUEST',
+    subject: null,
+    body: 'Claim {{claimNumber}} update: please share the pending claim documents so we can proceed. {{companyName}}',
+    variables: { claimNumber: '', companyName: 'Lako Insurance Agency' },
+  },
+  {
+    code: 'TASK_REMINDER_INTERNAL',
+    name: 'Internal task reminder',
+    channel: 'INTERNAL_NOTIFICATION',
+    category: 'TASK_REMINDER',
+    subject: 'Task reminder: {{taskTitle}}',
+    body: 'Reminder: {{taskTitle}} is due on {{dueDate}}.',
+    variables: { taskTitle: '', dueDate: '' },
+  },
+] as const;
+
+const DEFAULT_AUTOMATION_RULES = [
+  ['Welcome new client', 'CLIENT_CREATED', 'EMAIL', 'CLIENT_WELCOME_EMAIL', { recipient: 'client' }],
+  ['Missing onboarding documents', 'ONBOARDING_DOCUMENT_MISSING', 'SMS', 'ONBOARDING_DOCUMENT_REQUEST_SMS', { recipient: 'client', repeatDays: 3 }],
+  ['Policy activation confirmation', 'POLICY_ACTIVATED', 'EMAIL', 'POLICY_ACTIVATED_EMAIL', { recipient: 'client' }],
+  ['Renewal reminder - 30 days', 'POLICY_RENEWAL_UPCOMING', 'SMS', 'POLICY_RENEWAL_REMINDER_SMS', { daysBeforeExpiry: 30 }],
+  ['Premium payment reminder', 'PAYMENT_DUE', 'EMAIL', 'PAYMENT_REMINDER_EMAIL', { recipient: 'client' }],
+  ['Claim registered acknowledgement', 'CLAIM_REGISTERED', 'EMAIL', 'CLAIM_REGISTERED_EMAIL', { recipient: 'client' }],
+  ['Claim documents missing', 'CLAIM_DOCUMENTS_MISSING', 'SMS', 'CLAIM_DOCUMENT_REQUEST_SMS', { recipient: 'client' }],
+  ['Task due soon', 'TASK_DUE_SOON', 'INTERNAL_NOTIFICATION', 'TASK_REMINDER_INTERNAL', { hoursBeforeDue: 24 }],
+] as const;
 
 const ROLES: Record<string, {
   displayName: string;
@@ -197,7 +337,10 @@ const ROLES: Record<string, {
       'onboarding.read', 'onboarding.create', 'onboarding.update',
       'policies.read', 'policies.create',
       'insurers.read', 'products.read',
+      'claims.read',
       'documents.read', 'documents.create',
+      'communications.read', 'communications.send', 'communications.templates.read',
+      'notifications.read',
       'reports.read',
     ],
   },
@@ -212,9 +355,12 @@ const ROLES: Record<string, {
       'onboarding.read', 'onboarding.create', 'onboarding.update',
       'policies.read', 'policies.create', 'policies.update', 'policies.activate',
       'insurers.read', 'products.read',
-      'claims.read',
+      'claims.read', 'claims.create',
       'payments.read',
       'documents.read', 'documents.create',
+      'communications.read', 'communications.send', 'communications.schedule',
+      'communications.templates.read', 'communications.logs.read',
+      'notifications.read',
       'reports.read',
     ],
   },
@@ -226,8 +372,13 @@ const ROLES: Record<string, {
       'clients.read',
       'policies.read',
       'tasks.read', 'tasks.create', 'tasks.update', 'tasks.complete',
-      'claims.read', 'claims.create', 'claims.update', 'claims.approve',
+      'claims.read', 'claims.create', 'claims.update', 'claims.approve', 'claims.assign',
+      'claims.status.update', 'claims.submit_to_insurer', 'claims.documents.upload',
+      'claims.documents.verify', 'claims.assessment.manage', 'claims.settlement.manage',
+      'claims.close', 'claims.reports.read', 'claims.override_policy_eligibility',
       'documents.read', 'documents.create',
+      'communications.read', 'communications.send', 'communications.templates.read',
+      'communications.logs.read', 'notifications.read',
       'reports.read',
     ],
   },
@@ -238,6 +389,7 @@ const ROLES: Record<string, {
     permissions: [
       'clients.read',
       'policies.read',
+      'claims.read', 'claims.settlement.manage', 'claims.reports.read',
       'payments.read', 'payments.create', 'payments.verify', 'payments.record_direct_insurer_payment',
       'receipts.generate', 'receipts.generate_acknowledgement',
       'accounting.read', 'accounting.create', 'accounting.reconcile', 'accounting.journals.create',
@@ -246,6 +398,8 @@ const ROLES: Record<string, {
       'accounting.reports.view', 'accounting.reports.read', 'accounting.expenses.manage',
       'accounting.vendors.manage', 'accounting.reconciliation.manage',
       'commissions.read', 'commissions.calculate',
+      'communications.read', 'communications.send', 'communications.templates.read',
+      'communications.logs.read', 'notifications.read',
       'reports.read', 'reports.export',
       'documents.read',
     ],
@@ -257,6 +411,7 @@ const ROLES: Record<string, {
     permissions: [
       'clients.read',
       'policies.read',
+      'claims.read', 'claims.settlement.manage', 'claims.reports.read',
       'payments.read', 'payments.create', 'payments.verify', 'payments.reverse',
       'payments.record_direct_insurer_payment', 'payments.verify_direct_insurer_payment',
       'receipts.generate', 'receipts.generate_acknowledgement',
@@ -272,6 +427,9 @@ const ROLES: Record<string, {
       'accounting.reports.read', 'accounting.settings.manage',
       'commissions.read', 'commissions.calculate', 'commissions.approve', 'commissions.pay', 'commissions.hold',
       'commissions.clawback', 'commissions.statement',
+      'communications.read', 'communications.send', 'communications.send_bulk', 'communications.schedule',
+      'communications.templates.read', 'communications.campaigns.read', 'communications.logs.read',
+      'notifications.read', 'notifications.manage',
       'reports.read', 'reports.export',
       'documents.read',
     ],
@@ -286,13 +444,21 @@ const ROLES: Record<string, {
       'onboarding.read', 'onboarding.approve', 'onboarding.reject',
       'insurers.read', 'products.read',
       'policies.read', 'policies.update', 'policies.activate',
-      'claims.read', 'claims.update',
+      'claims.read', 'claims.create', 'claims.update', 'claims.assign', 'claims.status.update',
+      'claims.submit_to_insurer', 'claims.documents.upload', 'claims.documents.verify',
+      'claims.assessment.manage', 'claims.settlement.manage', 'claims.close',
+      'claims.reports.read', 'claims.override_policy_eligibility',
       'payments.read',
       'agents.read',
       'commissions.read',
       'reports.read', 'reports.export',
       'documents.read',
       'settings.read',
+      'communications.read', 'communications.send', 'communications.send_bulk', 'communications.schedule',
+      'communications.templates.read', 'communications.templates.create', 'communications.templates.update',
+      'communications.campaigns.read', 'communications.campaigns.create', 'communications.campaigns.send',
+      'communications.automations.manage', 'communications.settings.manage', 'communications.logs.read',
+      'notifications.read', 'notifications.manage',
     ],
   },
   Support: {
@@ -304,6 +470,7 @@ const ROLES: Record<string, {
       'policies.read', 'claims.read',
       'payments.read',
       'documents.read',
+      'communications.read', 'communications.logs.read', 'notifications.read',
     ],
   },
   Auditor: {
@@ -319,6 +486,8 @@ const ROLES: Record<string, {
       'accounting.transactions.read', 'accounting.reports.read', 'accounting.reports.view',
       'commissions.read',
       'audit.read',
+      'communications.read', 'communications.templates.read', 'communications.campaigns.read',
+      'communications.logs.read', 'notifications.read',
       'reports.read', 'reports.export',
       'documents.read',
     ],
@@ -426,6 +595,74 @@ async function main(): Promise<void> {
   }
   console.log(`✓ ${defaultSettings.length} settings seeded`);
 
+  console.log('Creating default communication templates...');
+  const templateIds = new Map<string, string>();
+  for (const template of DEFAULT_MESSAGE_TEMPLATES) {
+    const row = await prisma.messageTemplate.upsert({
+      where: { code: template.code },
+      update: {
+        name: template.name,
+        channel: template.channel as any,
+        category: template.category as any,
+        subject: template.subject,
+        body: template.body,
+        variables: template.variables,
+        isSystem: true,
+        isActive: true,
+      },
+      create: {
+        name: template.name,
+        code: template.code,
+        channel: template.channel as any,
+        category: template.category as any,
+        subject: template.subject,
+        body: template.body,
+        variables: template.variables,
+        isSystem: true,
+        isActive: true,
+      },
+    });
+    templateIds.set(template.code, row.id);
+  }
+  console.log(`Seeded ${DEFAULT_MESSAGE_TEMPLATES.length} communication templates`);
+
+  console.log('Creating default automation rules...');
+  for (const [name, triggerType, channel, templateCode, scheduleConfig] of DEFAULT_AUTOMATION_RULES) {
+    const existing = await prisma.automationRule.findFirst({ where: { triggerType: triggerType as any, name } });
+    const data = {
+      name,
+      triggerType: triggerType as any,
+      channel: channel as any,
+      templateId: templateIds.get(templateCode) ?? null,
+      isActive: false,
+      scheduleConfig,
+      conditions: {},
+      recipientConfig: scheduleConfig,
+    };
+    if (existing) await prisma.automationRule.update({ where: { id: existing.id }, data });
+    else await prisma.automationRule.create({ data });
+  }
+  console.log(`Seeded ${DEFAULT_AUTOMATION_RULES.length} automation rules`);
+
+  console.log('Creating claim document requirements...');
+  for (const [insuranceClass, claimType, lossType, documentType, documentName, description] of CLAIM_DOCUMENT_REQUIREMENTS) {
+    const id = `seed-${claimType}-${documentType}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    await prisma.claimDocumentRequirement.upsert({
+      where: { id },
+      update: { documentName, description, isActive: true },
+      create: {
+        id,
+        insuranceClass: insuranceClass as any,
+        claimType,
+        lossType,
+        documentType,
+        documentName,
+        description,
+        isRequired: true,
+      },
+    });
+  }
+  console.log(`Seeded ${CLAIM_DOCUMENT_REQUIREMENTS.length} claim document requirements`);
   console.log('\n✅ Seed completed successfully!');
 }
 
