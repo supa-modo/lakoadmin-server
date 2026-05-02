@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+/** Treat empty string as null so clients/forms don’t fail UUID validation on clear. */
+const optionalUuidNullable = z.preprocess(
+  (val) => (val === '' ? null : val),
+  z.string().uuid().optional().nullable(),
+);
+
 export const createLeadSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   email: z.string().email('Invalid email').optional().nullable(),
@@ -10,13 +16,16 @@ export const createLeadSchema = z.object({
     .default('INDIVIDUAL'),
   source: z.string().optional().nullable(),
   sourceDetail: z.string().optional().nullable(),
-  referrerId: z.string().uuid().optional().nullable(),
+  referrerId: z.preprocess(
+    (val) => (val === '' ? null : val),
+    z.string().uuid().optional().nullable(),
+  ),
   priority: z.enum(['HOT', 'WARM', 'COLD']).default('WARM'),
   productsOfInterest: z.array(z.string()).default([]),
   expectedPremium: z.number().optional().nullable(),
   notes: z.string().optional().nullable(),
   nextFollowUp: z.string().datetime().optional().nullable(),
-  assignedToId: z.string().uuid().optional().nullable(),
+  assignedToId: optionalUuidNullable,
 });
 
 export const updateLeadSchema = z.object({
@@ -27,13 +36,16 @@ export const updateLeadSchema = z.object({
   leadType: z.enum(['INDIVIDUAL', 'CORPORATE', 'SME', 'GROUP', 'GOVERNMENT']).optional(),
   source: z.string().optional().nullable(),
   sourceDetail: z.string().optional().nullable(),
-  referrerId: z.string().uuid().optional().nullable(),
+  referrerId: z.preprocess(
+    (val) => (val === '' ? null : val),
+    z.string().uuid().optional().nullable(),
+  ),
   priority: z.enum(['HOT', 'WARM', 'COLD']).optional(),
   productsOfInterest: z.array(z.string()).optional(),
   expectedPremium: z.number().optional().nullable(),
   notes: z.string().optional().nullable(),
   nextFollowUp: z.string().datetime().optional().nullable(),
-  assignedToId: z.string().uuid().optional().nullable(),
+  assignedToId: optionalUuidNullable,
 });
 
 export const listLeadsSchema = z.object({
@@ -57,7 +69,10 @@ export const updateStatusSchema = z.object({
 
 export const convertToClientSchema = z.object({
   clientType: z.enum(['INDIVIDUAL', 'CORPORATE', 'SME', 'GROUP', 'GOVERNMENT']).optional(),
-  relationshipManagerId: z.string().uuid().optional().nullable(),
+  relationshipManagerId: z.preprocess(
+    (val) => (val === '' ? null : val),
+    z.string().uuid().optional().nullable(),
+  ),
 });
 
 export const logActivitySchema = z.object({

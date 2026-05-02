@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
@@ -6,6 +7,7 @@ import path from 'path';
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const prisma = new PrismaClient();
+const SEED_TAG = '[SEED:sample]';
 
 // ─────────────────────────────────────────────────────────
 // PERMISSIONS - comprehensive catalog covering all modules
@@ -496,6 +498,7 @@ const ROLES: Record<string, {
 
 async function main(): Promise<void> {
   console.log('🌱 Starting seed...');
+  const seedSampleData = (process.env.SEED_SAMPLE_DATA ?? '').toLowerCase() === 'true';
 
   // ── Permissions ──────────────────────────────────────
   console.log('Creating permissions...');
@@ -663,6 +666,1239 @@ async function main(): Promise<void> {
     });
   }
   console.log(`Seeded ${CLAIM_DOCUMENT_REQUIREMENTS.length} claim document requirements`);
+
+  // ─────────────────────────────────────────────────────────
+  // SAMPLE DATA (optional) - gated by SEED_SAMPLE_DATA=true
+  // ─────────────────────────────────────────────────────────
+  if (!seedSampleData) {
+    console.log('\nℹ️  Sample data seeding skipped (set SEED_SAMPLE_DATA=true to enable).');
+    console.log('\n✅ Seed completed successfully!');
+    return;
+  }
+
+  console.log('\n🧪 Seeding sample data...');
+
+  const now = new Date();
+  const daysFromNow = (n: number) => new Date(now.getTime() + n * 24 * 60 * 60 * 1000);
+
+  const pad = (n: number, width: number) => String(n).padStart(width, '0');
+  const makeClientNumber = (i: number) => `CL-${pad(i, 4)}`;
+  const makePolicyNumber = (i: number) => `POL-2026-${pad(i, 6)}`;
+  const makePaymentNumber = (i: number) => `PAY-2026-${pad(i, 6)}`;
+  const makeReceiptNumber = (i: number) => `RCT-2026-${pad(i, 6)}`;
+  const makeInvoiceNumber = (i: number) => `INV-2026-${pad(i, 6)}`;
+
+  /**
+   * Deterministic RFC-4122-style UUID from a seed string.
+   * Sample FKs must be valid UUIDs so API validation (e.g. lead assignedToId) passes.
+   */
+  const sampleId = (name: string): string => {
+    const h = createHash('sha256').update(`lako-agency:sample:${name}`).digest();
+    const b = Buffer.allocUnsafe(16);
+    h.copy(b, 0, 0, 16);
+    b[6] = (b[6]! & 0x0f) | 0x40;
+    b[8] = (b[8]! & 0x3f) | 0x80;
+    const hex = b.toString('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  };
+  const sampleEmail = (name: string) => `${name}@seed.lako.co.ke`;
+  const hashPassword = async (plain: string) => bcrypt.hash(plain, 12);
+  const resolveClientName = (client: { companyName: string | null; firstName: string | null; lastName: string | null; clientNumber: string }) =>
+    client.companyName ??
+    ((`${client.firstName ?? ''} ${client.lastName ?? ''}`.trim()) || `Client ${client.clientNumber}`);
+
+  // ── Roles lookup (already seeded above) ───────────────────
+  const [
+    roleSales,
+    roleRelationship,
+    roleClaims,
+    roleFinance,
+  ] = await Promise.all([
+    prisma.role.findUnique({ where: { name: 'SalesAgent' } }),
+    prisma.role.findUnique({ where: { name: 'RelationshipManager' } }),
+    prisma.role.findUnique({ where: { name: 'ClaimsOfficer' } }),
+    prisma.role.findUnique({ where: { name: 'FinanceManager' } }),
+  ]);
+
+  if (!roleSales || !roleRelationship || !roleClaims || !roleFinance) {
+    throw new Error('Required roles not found (SalesAgent/RelationshipManager/ClaimsOfficer/FinanceManager). Ensure baseline seed runs first.');
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // 1) Sample users (4) + roles
+  // ─────────────────────────────────────────────────────────
+  const samplePassword = process.env.SEED_SAMPLE_PASSWORD ?? 'Seed@1234!';
+  const samplePasswordHash = await hashPassword(samplePassword);
+
+  const sampleUsers = [
+    {
+      id: sampleId('user-sales'),
+      email: sampleEmail('sales'),
+      firstName: 'Amina',
+      lastName: 'Sales',
+      phone: '+254700111001',
+      roleId: roleSales.id,
+    },
+    {
+      id: sampleId('user-relationship'),
+      email: sampleEmail('staff'),
+      firstName: 'Brian',
+      lastName: 'Staff',
+      phone: '+254700111002',
+      roleId: roleRelationship.id,
+    },
+    {
+      id: sampleId('user-claims'),
+      email: sampleEmail('claims'),
+      firstName: 'Cynthia',
+      lastName: 'Claims',
+      phone: '+254700111003',
+      roleId: roleClaims.id,
+    },
+    {
+      id: sampleId('user-finance'),
+      email: sampleEmail('finance'),
+      firstName: 'David',
+      lastName: 'Finance',
+      phone: '+254700111004',
+      roleId: roleFinance.id,
+    },
+  ] as const;
+
+  for (const u of sampleUsers) {
+    await prisma.user.upsert({
+      where: { email: u.email },
+      update: {
+        firstName: u.firstName,
+        lastName: u.lastName,
+        phone: u.phone,
+        isActive: true,
+        password: samplePasswordHash,
+      },
+      create: {
+        id: u.id,
+        email: u.email,
+        password: samplePasswordHash,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        phone: u.phone,
+        isActive: true,
+      },
+    });
+
+    const user = await prisma.user.findUnique({ where: { email: u.email } });
+    if (!user) throw new Error(`Failed to upsert sample user ${u.email}`);
+
+    await prisma.userRole.upsert({
+      where: { userId_roleId: { userId: user.id, roleId: u.roleId } },
+      update: {},
+      create: { userId: user.id, roleId: u.roleId, assignedBy: 'seed' },
+    });
+  }
+
+  const [salesUser, relationshipUser, claimsUser, financeUser] = await Promise.all([
+    prisma.user.findUnique({ where: { email: sampleEmail('sales') } }),
+    prisma.user.findUnique({ where: { email: sampleEmail('staff') } }),
+    prisma.user.findUnique({ where: { email: sampleEmail('claims') } }),
+    prisma.user.findUnique({ where: { email: sampleEmail('finance') } }),
+  ]);
+  if (!salesUser || !relationshipUser || !claimsUser || !financeUser) {
+    throw new Error('Failed to load sample users after upsert.');
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // 2) Agents (2) - used by policies/commissions
+  // ─────────────────────────────────────────────────────────
+  const agents = [
+    {
+      id: sampleId('agent-001'),
+      agentNumber: 'AG-0001',
+      agentCode: 'AG001',
+      type: 'INTERNAL' as const,
+      firstName: 'Ian',
+      lastName: 'Agent',
+      email: 'ian.agent@lako.co.ke',
+      phone: '+254700222001',
+      userId: salesUser.id,
+      defaultCommissionRate: '0.1000',
+      withholdingTaxRate: '0.0500',
+      notes: `${SEED_TAG} Internal agent`,
+    },
+    {
+      id: sampleId('agent-002'),
+      agentNumber: 'AG-0002',
+      agentCode: 'AG002',
+      type: 'EXTERNAL' as const,
+      companyName: 'Mtaa Insurance Partners',
+      email: 'partners@mtaa.co.ke',
+      phone: '+254700222002',
+      defaultCommissionRate: '0.0800',
+      withholdingTaxRate: '0.0500',
+      notes: `${SEED_TAG} External agent`,
+    },
+  ] as const;
+
+  for (const a of agents) {
+    await prisma.agent.upsert({
+      where: { agentNumber: a.agentNumber },
+      update: {
+        agentCode: a.agentCode,
+        type: a.type as any,
+        firstName: (a as any).firstName ?? null,
+        lastName: (a as any).lastName ?? null,
+        companyName: (a as any).companyName ?? null,
+        email: a.email,
+        phone: a.phone,
+        userId: (a as any).userId ?? null,
+        defaultCommissionRate: a.defaultCommissionRate as any,
+        withholdingTaxRate: a.withholdingTaxRate as any,
+        notes: a.notes,
+        status: 'ACTIVE' as any,
+      },
+      create: {
+        id: a.id,
+        agentNumber: a.agentNumber,
+        agentCode: a.agentCode,
+        type: a.type as any,
+        firstName: (a as any).firstName ?? null,
+        lastName: (a as any).lastName ?? null,
+        companyName: (a as any).companyName ?? null,
+        email: a.email,
+        phone: a.phone,
+        userId: (a as any).userId ?? null,
+        defaultCommissionRate: a.defaultCommissionRate as any,
+        withholdingTaxRate: a.withholdingTaxRate as any,
+        notes: a.notes,
+        status: 'ACTIVE' as any,
+      },
+    });
+  }
+
+  const [agent1, agent2] = await Promise.all([
+    prisma.agent.findUnique({ where: { agentNumber: 'AG-0001' } }),
+    prisma.agent.findUnique({ where: { agentNumber: 'AG-0002' } }),
+  ]);
+  if (!agent1 || !agent2) throw new Error('Failed to upsert sample agents');
+
+  // ─────────────────────────────────────────────────────────
+  // 3) Insurers (8) + contacts
+  // ─────────────────────────────────────────────────────────
+  const insurers: Array<{
+    id: string;
+    name: string;
+    shortName?: string;
+    iraLicenseNumber: string;
+    phone: string;
+    email: string;
+    county: string;
+  }> = [
+    { id: sampleId('insurer-jubilee'), name: 'Jubilee Insurance', shortName: 'Jubilee', iraLicenseNumber: 'IRA-JUB-001', phone: '+254711000001', email: 'info@jubilee.co.ke', county: 'Nairobi' },
+    { id: sampleId('insurer-britam'), name: 'Britam', shortName: 'Britam', iraLicenseNumber: 'IRA-BRT-002', phone: '+254711000002', email: 'info@britam.co.ke', county: 'Nairobi' },
+    { id: sampleId('insurer-apa'), name: 'APA Insurance', shortName: 'APA', iraLicenseNumber: 'IRA-APA-003', phone: '+254711000003', email: 'info@apa.co.ke', county: 'Nairobi' },
+    { id: sampleId('insurer-cic'), name: 'CIC Insurance Group', shortName: 'CIC', iraLicenseNumber: 'IRA-CIC-004', phone: '+254711000004', email: 'info@cic.co.ke', county: 'Nairobi' },
+    { id: sampleId('insurer-icea'), name: 'ICEA LION', shortName: 'ICEA', iraLicenseNumber: 'IRA-ICE-005', phone: '+254711000005', email: 'info@icealion.co.ke', county: 'Nairobi' },
+    { id: sampleId('insurer-oldmutual'), name: 'Old Mutual Kenya', shortName: 'OldMutual', iraLicenseNumber: 'IRA-OMK-006', phone: '+254711000006', email: 'info@oldmutual.co.ke', county: 'Nairobi' },
+    { id: sampleId('insurer-heritage'), name: 'Heritage Insurance', shortName: 'Heritage', iraLicenseNumber: 'IRA-HER-007', phone: '+254711000007', email: 'info@heritage.co.ke', county: 'Nairobi' },
+    { id: sampleId('insurer-ga'), name: 'GA Insurance', shortName: 'GA', iraLicenseNumber: 'IRA-GAI-008', phone: '+254711000008', email: 'info@gainsurance.co.ke', county: 'Nairobi' },
+  ];
+
+  for (const ins of insurers) {
+    await prisma.insurer.upsert({
+      where: { id: ins.id },
+      update: {
+        name: ins.name,
+        shortName: ins.shortName,
+        iraLicenseNumber: ins.iraLicenseNumber,
+        phone: ins.phone,
+        email: ins.email,
+        county: ins.county,
+        status: 'ACTIVE',
+        notes: `${SEED_TAG} sample insurer`,
+        createdById: financeUser.id,
+        iraClassifications: ['MOTOR_PRIVATE', 'MEDICAL_COMPREHENSIVE', 'FIRE_DOMESTIC'] as any,
+      },
+      create: {
+        id: ins.id,
+        name: ins.name,
+        shortName: ins.shortName,
+        iraLicenseNumber: ins.iraLicenseNumber,
+        phone: ins.phone,
+        email: ins.email,
+        county: ins.county,
+        status: 'ACTIVE',
+        notes: `${SEED_TAG} sample insurer`,
+        createdById: financeUser.id,
+        iraClassifications: ['MOTOR_PRIVATE', 'MEDICAL_COMPREHENSIVE', 'FIRE_DOMESTIC'] as any,
+      },
+    });
+
+    const contactId = sampleId(`insurer-contact-${ins.shortName?.toLowerCase() ?? ins.name.toLowerCase()}`);
+    await prisma.insurerContact.upsert({
+      where: { id: contactId },
+      update: {
+        insurerId: ins.id,
+        name: `${ins.shortName ?? ins.name} Underwriting Desk`,
+        email: `uw@${(ins.shortName ?? ins.name).toLowerCase().replace(/\s+/g, '')}.co.ke`,
+        phone: '+254700333001',
+        isPrimary: true,
+        notes: SEED_TAG,
+      },
+      create: {
+        id: contactId,
+        insurerId: ins.id,
+        name: `${ins.shortName ?? ins.name} Underwriting Desk`,
+        email: `uw@${(ins.shortName ?? ins.name).toLowerCase().replace(/\s+/g, '')}.co.ke`,
+        phone: '+254700333001',
+        isPrimary: true,
+        notes: SEED_TAG,
+      },
+    });
+  }
+
+  const insurerRows = await prisma.insurer.findMany({ where: { id: { in: insurers.map((i) => i.id) } } });
+  if (insurerRows.length !== insurers.length) throw new Error('Failed to seed insurers');
+
+  // ─────────────────────────────────────────────────────────
+  // 4) Products (12) + versions + commission rules
+  // ─────────────────────────────────────────────────────────
+  const insurerById = new Map(insurerRows.map((i) => [i.id, i]));
+  const pickInsurerId = (i: number) => insurers[i % insurers.length].id;
+
+  const products = Array.from({ length: 12 }).map((_, idx) => {
+    const insurerId = pickInsurerId(idx);
+    const code = `PRD-${pad(idx + 1, 3)}`;
+    const insuranceClass = (idx % 3 === 0
+      ? 'MOTOR_PRIVATE'
+      : idx % 3 === 1
+        ? 'MEDICAL_COMPREHENSIVE'
+        : 'FIRE_DOMESTIC') as any;
+    const name =
+      insuranceClass === 'MOTOR_PRIVATE'
+        ? `Motor Comprehensive ${code}`
+        : insuranceClass === 'MEDICAL_COMPREHENSIVE'
+          ? `Medical Cover ${code}`
+          : `Home & Property ${code}`;
+
+    return {
+      id: sampleId(`product-${code.toLowerCase()}`),
+      insurerId,
+      code,
+      name,
+      insuranceClass,
+      category: insuranceClass === 'MOTOR_PRIVATE' ? 'Motor' : insuranceClass === 'MEDICAL_COMPREHENSIVE' ? 'Medical' : 'Property',
+      subcategory: insuranceClass === 'MOTOR_PRIVATE' ? 'Comprehensive' : insuranceClass === 'MEDICAL_COMPREHENSIVE' ? 'Comprehensive' : 'Fire',
+      description: `${SEED_TAG} sample product`,
+      eligibleClientTypes: ['INDIVIDUAL', 'CORPORATE'] as any,
+      policyDurations: ['12 months'] as string[],
+      paymentOptions: ['ANNUAL', 'MONTHLY'] as any,
+      requiredDocuments: ['National ID', 'KRA PIN'] as any,
+      createdById: relationshipUser.id,
+    };
+  });
+
+  for (const p of products) {
+    await prisma.product.upsert({
+      where: { code: p.code },
+      update: {
+        insurerId: p.insurerId,
+        name: p.name,
+        insuranceClass: p.insuranceClass,
+        category: p.category,
+        subcategory: p.subcategory,
+        description: p.description,
+        eligibleClientTypes: p.eligibleClientTypes,
+        policyDurations: p.policyDurations,
+        paymentOptions: p.paymentOptions,
+        requiredDocuments: p.requiredDocuments,
+        status: 'ACTIVE',
+        createdById: p.createdById,
+      },
+      create: {
+        id: p.id,
+        insurerId: p.insurerId,
+        code: p.code,
+        name: p.name,
+        insuranceClass: p.insuranceClass,
+        category: p.category,
+        subcategory: p.subcategory,
+        description: p.description,
+        eligibleClientTypes: p.eligibleClientTypes,
+        policyDurations: p.policyDurations,
+        paymentOptions: p.paymentOptions,
+        requiredDocuments: p.requiredDocuments,
+        status: 'ACTIVE',
+        createdById: p.createdById,
+      },
+    });
+
+    // Resolve actual PK: upsert matches on `code`; existing DB rows may still have pre-UUID ids.
+    const productRow = await prisma.product.findUniqueOrThrow({ where: { code: p.code } });
+    const productDbId = productRow.id;
+
+    const versionId = sampleId(`product-version-${p.code.toLowerCase()}`);
+    // Upsert on (productId, versionNumber): DB may already have v1.0 with a different id after product PK/code reconciliation.
+    await prisma.productVersion.upsert({
+      where: {
+        productId_versionNumber: { productId: productDbId, versionNumber: 'v1.0' },
+      },
+      update: {
+        effectiveDate: daysFromNow(-365),
+        terms: `${SEED_TAG} Standard terms`,
+        exclusions: `${SEED_TAG} Standard exclusions`,
+        claimsProcess: `${SEED_TAG} Standard claims process`,
+        isActive: true,
+      },
+      create: {
+        id: versionId,
+        productId: productDbId,
+        versionNumber: 'v1.0',
+        effectiveDate: daysFromNow(-365),
+        terms: `${SEED_TAG} Standard terms`,
+        exclusions: `${SEED_TAG} Standard exclusions`,
+        claimsProcess: `${SEED_TAG} Standard claims process`,
+        isActive: true,
+      },
+    });
+
+    const ruleId = sampleId(`commission-rule-${p.code.toLowerCase()}`);
+    await prisma.commissionRule.upsert({
+      where: { id: ruleId },
+      update: {
+        productId: productDbId,
+        insurerId: p.insurerId,
+        commissionType: 'FIRST_YEAR' as any,
+        rate: '0.1000' as any,
+        calculationBasis: 'GROSS_PREMIUM' as any,
+        effectiveFrom: daysFromNow(-365),
+        effectiveTo: null,
+        isActive: true,
+        notes: `${SEED_TAG} 10% gross premium`,
+      },
+      create: {
+        id: ruleId,
+        productId: productDbId,
+        insurerId: p.insurerId,
+        commissionType: 'FIRST_YEAR' as any,
+        rate: '0.1000' as any,
+        calculationBasis: 'GROSS_PREMIUM' as any,
+        effectiveFrom: daysFromNow(-365),
+        effectiveTo: null,
+        isActive: true,
+        notes: `${SEED_TAG} 10% gross premium`,
+      },
+    });
+  }
+
+  const productRows = await prisma.product.findMany({ where: { code: { in: products.map((p) => p.code) } } });
+  if (productRows.length !== products.length) throw new Error('Failed to seed products');
+
+  // ─────────────────────────────────────────────────────────
+  // 5) Leads (18) across UI pipeline stages
+  //    NEW, PROPOSAL_SENT, NEGOTIATING, WON (4 stages)
+  // ─────────────────────────────────────────────────────────
+  const leadStages = ['NEW', 'PROPOSAL_SENT', 'NEGOTIATING', 'WON'] as const;
+  const leadStageForIndex = (i: number) => leadStages[i % leadStages.length];
+  const leadAssigneeForIndex = (i: number) =>
+    i % 4 === 0 ? salesUser.id : i % 4 === 1 ? relationshipUser.id : i % 4 === 2 ? claimsUser.id : financeUser.id;
+
+  for (let i = 1; i <= 18; i++) {
+    const id = sampleId(`lead-${pad(i, 3)}`);
+    const status = leadStageForIndex(i - 1);
+    const assignedToId = leadAssigneeForIndex(i - 1);
+    const expectedPremium = (50000 + i * 2500).toFixed(2);
+    await prisma.lead.upsert({
+      where: { id },
+      update: {
+        name: `Lead ${pad(i, 2)}`,
+        email: `lead${pad(i, 2)}@example.com`,
+        phone: `+25470188${pad(i, 2)}`,
+        companyName: i % 3 === 0 ? `Acme Kenya ${i} Ltd` : null,
+        leadType: (i % 3 === 0 ? 'CORPORATE' : 'INDIVIDUAL') as any,
+        source: 'Seed',
+        sourceDetail: `${SEED_TAG} batch=sample`,
+        status: status as any,
+        priority: (i % 3 === 0 ? 'HOT' : i % 3 === 1 ? 'WARM' : 'COLD') as any,
+        productsOfInterest: [products[(i - 1) % products.length].name] as any,
+        expectedPremium: expectedPremium as any,
+        assignedToId,
+        notes: `${SEED_TAG} lead notes`,
+        nextFollowUp: daysFromNow((i % 10) + 1),
+        createdById: salesUser.id,
+        lostReason: null,
+        lostAt: null,
+      },
+      create: {
+        id,
+        name: `Lead ${pad(i, 2)}`,
+        email: `lead${pad(i, 2)}@example.com`,
+        phone: `+25470188${pad(i, 2)}`,
+        companyName: i % 3 === 0 ? `Acme Kenya ${i} Ltd` : null,
+        leadType: (i % 3 === 0 ? 'CORPORATE' : 'INDIVIDUAL') as any,
+        source: 'Seed',
+        sourceDetail: `${SEED_TAG} batch=sample`,
+        status: status as any,
+        priority: (i % 3 === 0 ? 'HOT' : i % 3 === 1 ? 'WARM' : 'COLD') as any,
+        productsOfInterest: [products[(i - 1) % products.length].name] as any,
+        expectedPremium: expectedPremium as any,
+        assignedToId,
+        notes: `${SEED_TAG} lead notes`,
+        nextFollowUp: daysFromNow((i % 10) + 1),
+        createdById: salesUser.id,
+      },
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // 6) Clients (15) + contacts
+  // ─────────────────────────────────────────────────────────
+  const counties = ['Nairobi', 'Kiambu', 'Mombasa', 'Nakuru', 'Kisumu', 'Uasin Gishu', 'Machakos', 'Nyeri'] as const;
+  for (let i = 1; i <= 15; i++) {
+    const id = sampleId(`client-${pad(i, 3)}`);
+    const isCorporate = i % 5 === 0;
+    const clientNumber = makeClientNumber(i);
+    const email = isCorporate ? `accounts${i}@sampleco.ke` : `client${i}@example.com`;
+    const phone = `+25471244${pad(i, 2)}`;
+    await prisma.client.upsert({
+      where: { clientNumber },
+      update: {
+        type: (isCorporate ? 'CORPORATE' : 'INDIVIDUAL') as any,
+        firstName: isCorporate ? null : `Client${i}`,
+        lastName: isCorporate ? null : 'Sample',
+        companyName: isCorporate ? `Sample Company ${i} Ltd` : null,
+        registrationNumber: isCorporate ? `CPR/${pad(1000 + i, 4)}` : null,
+        email,
+        phone,
+        county: counties[(i - 1) % counties.length],
+        physicalAddress: `${SEED_TAG} Nairobi CBD, Building ${i}`,
+        kraPin: `A${pad(1234500 + i, 7)}Z`,
+        relationshipManagerId: relationshipUser.id,
+        marketingOptIn: i % 2 === 0,
+        preferredLanguage: 'en',
+        createdById: relationshipUser.id,
+      },
+      create: {
+        id,
+        clientNumber,
+        type: (isCorporate ? 'CORPORATE' : 'INDIVIDUAL') as any,
+        firstName: isCorporate ? null : `Client${i}`,
+        lastName: isCorporate ? null : 'Sample',
+        companyName: isCorporate ? `Sample Company ${i} Ltd` : null,
+        registrationNumber: isCorporate ? `CPR/${pad(1000 + i, 4)}` : null,
+        email,
+        phone,
+        county: counties[(i - 1) % counties.length],
+        physicalAddress: `${SEED_TAG} Nairobi CBD, Building ${i}`,
+        kraPin: `A${pad(1234500 + i, 7)}Z`,
+        relationshipManagerId: relationshipUser.id,
+        marketingOptIn: i % 2 === 0,
+        preferredLanguage: 'en',
+        createdById: relationshipUser.id,
+      },
+    });
+
+    const contactId = sampleId(`client-contact-${pad(i, 3)}`);
+    const clientRow = await prisma.client.findUnique({ where: { clientNumber } });
+    if (!clientRow) throw new Error(`Failed to upsert client ${clientNumber}`);
+
+    await prisma.clientContact.upsert({
+      where: { id: contactId },
+      update: {
+        clientId: clientRow.id,
+        name: isCorporate ? `Finance Desk ${i}` : `Client${i} Sample`,
+        title: isCorporate ? 'Accounts' : null,
+        department: isCorporate ? 'Finance' : null,
+        email,
+        phone,
+        isPrimary: true,
+        canAuthorize: true,
+        notes: SEED_TAG,
+      },
+      create: {
+        id: contactId,
+        clientId: clientRow.id,
+        name: isCorporate ? `Finance Desk ${i}` : `Client${i} Sample`,
+        title: isCorporate ? 'Accounts' : null,
+        department: isCorporate ? 'Finance' : null,
+        email,
+        phone,
+        isPrimary: true,
+        canAuthorize: true,
+        notes: SEED_TAG,
+      },
+    });
+  }
+
+  const clientRows = await prisma.client.findMany({ where: { clientNumber: { in: Array.from({ length: 15 }).map((_, i) => makeClientNumber(i + 1)) } } });
+  if (clientRows.length !== 15) throw new Error('Failed to seed clients');
+
+  // ─────────────────────────────────────────────────────────
+  // 7) Onboarding cases (5) + documents (connected to clients)
+  // ─────────────────────────────────────────────────────────
+  for (let i = 1; i <= 5; i++) {
+    const client = clientRows[i - 1];
+    const leadId = sampleId(`lead-${pad(i, 3)}`);
+    const product = productRows[(i - 1) % productRows.length];
+    const insurer = insurerById.get(product.insurerId);
+    if (!insurer) throw new Error('Insurer not found for product');
+
+    const caseId = sampleId(`onboarding-${pad(i, 3)}`);
+    const caseNumber = `ONB-2026-${pad(i, 5)}`;
+    await prisma.onboardingCase.upsert({
+      where: { caseNumber },
+      update: {
+        clientId: client.id,
+        leadId,
+        productId: product.id,
+        insurerId: insurer.id,
+        clientType: client.type as any,
+        status: (i % 2 === 0 ? 'UNDER_REVIEW' : 'DOCUMENTS_PENDING') as any,
+        premiumEstimate: (65000 + i * 5000).toFixed(2) as any,
+        riskDetails: { tag: SEED_TAG, notes: 'Initial risk notes', segment: 'Retail' },
+        memberData: { tag: SEED_TAG, dependants: i % 2 === 0 ? 2 : 0 },
+        reviewerId: i % 2 === 0 ? relationshipUser.id : null,
+        reviewNotes: i % 2 === 0 ? `${SEED_TAG} review in progress` : null,
+        submittedAt: daysFromNow(-i),
+        createdById: relationshipUser.id,
+      },
+      create: {
+        id: caseId,
+        caseNumber,
+        clientId: client.id,
+        leadId,
+        productId: product.id,
+        insurerId: insurer.id,
+        clientType: client.type as any,
+        status: (i % 2 === 0 ? 'UNDER_REVIEW' : 'DOCUMENTS_PENDING') as any,
+        premiumEstimate: (65000 + i * 5000).toFixed(2) as any,
+        riskDetails: { tag: SEED_TAG, notes: 'Initial risk notes', segment: 'Retail' },
+        memberData: { tag: SEED_TAG, dependants: i % 2 === 0 ? 2 : 0 },
+        reviewerId: i % 2 === 0 ? relationshipUser.id : null,
+        reviewNotes: i % 2 === 0 ? `${SEED_TAG} review in progress` : null,
+        submittedAt: daysFromNow(-i),
+        createdById: relationshipUser.id,
+      },
+    });
+
+    const onboardingCaseRow = await prisma.onboardingCase.findUniqueOrThrow({ where: { caseNumber } });
+    const onboardingCaseDbId = onboardingCaseRow.id;
+
+    const docId = sampleId(`onboarding-doc-${pad(i, 3)}`);
+    await prisma.onboardingDocument.upsert({
+      where: { id: docId },
+      update: {
+        onboardingCaseId: onboardingCaseDbId,
+        documentType: 'NATIONAL_ID',
+        fileName: `national-id-${i}.pdf`,
+        fileUrl: `https://example.com/${SEED_TAG}/national-id-${i}.pdf`,
+        fileSize: 1024 * 150,
+        mimeType: 'application/pdf',
+        status: (i % 2 === 0 ? 'VERIFIED' : 'PENDING') as any,
+        verifiedById: i % 2 === 0 ? relationshipUser.id : null,
+        verifiedAt: i % 2 === 0 ? daysFromNow(-i + 1) : null,
+      },
+      create: {
+        id: docId,
+        onboardingCaseId: onboardingCaseDbId,
+        documentType: 'NATIONAL_ID',
+        fileName: `national-id-${i}.pdf`,
+        fileUrl: `https://example.com/${SEED_TAG}/national-id-${i}.pdf`,
+        fileSize: 1024 * 150,
+        mimeType: 'application/pdf',
+        status: (i % 2 === 0 ? 'VERIFIED' : 'PENDING') as any,
+        verifiedById: i % 2 === 0 ? relationshipUser.id : null,
+        verifiedAt: i % 2 === 0 ? daysFromNow(-i + 1) : null,
+      },
+    });
+  }
+
+  const onboardingRows = await prisma.onboardingCase.findMany({ where: { caseNumber: { startsWith: 'ONB-2026-' } } });
+
+  // ─────────────────────────────────────────────────────────
+  // 8) Policies (12) + payments + allocations + receipts + commissions
+  // ─────────────────────────────────────────────────────────
+  type PolicySeedSpec = {
+    status: 'ACTIVE' | 'SUSPENDED' | 'PENDING_PAYMENT';
+    endDate: Date;
+  };
+  const policySpecs: PolicySeedSpec[] = [
+    // 6 ACTIVE
+    { status: 'ACTIVE', endDate: daysFromNow(180) },
+    { status: 'ACTIVE', endDate: daysFromNow(210) },
+    { status: 'ACTIVE', endDate: daysFromNow(240) },
+    { status: 'ACTIVE', endDate: daysFromNow(270) },
+    { status: 'ACTIVE', endDate: daysFromNow(300) },
+    { status: 'ACTIVE', endDate: daysFromNow(330) },
+    // 2 SUSPENDED
+    { status: 'SUSPENDED', endDate: daysFromNow(200) },
+    { status: 'SUSPENDED', endDate: daysFromNow(220) },
+    // 3 pending renewals (ACTIVE but expiring within 30 days)
+    { status: 'ACTIVE', endDate: daysFromNow(10) },
+    { status: 'ACTIVE', endDate: daysFromNow(20) },
+    { status: 'ACTIVE', endDate: daysFromNow(28) },
+    // 1 PENDING_PAYMENT
+    { status: 'PENDING_PAYMENT', endDate: daysFromNow(365) },
+  ];
+
+  for (let i = 1; i <= 12; i++) {
+    const spec = policySpecs[i - 1];
+    const id = sampleId(`policy-${pad(i, 3)}`);
+    const policyNumber = makePolicyNumber(i);
+    const client = clientRows[(i - 1) % clientRows.length];
+    const product = productRows[(i - 1) % productRows.length];
+    const insurer = insurerById.get(product.insurerId);
+    if (!insurer) throw new Error('Insurer not found for policy product');
+
+    const startDate = daysFromNow(-200);
+    const endDate = spec.endDate;
+    const basePremium = 80000 + i * 3500;
+    const trainingLevy = basePremium * 0.0025;
+    const pcifLevy = basePremium * 0.0025;
+    const stampDuty = 40;
+    const policyFee = 0;
+    const totalPremium = basePremium + trainingLevy + pcifLevy + stampDuty + policyFee;
+
+    const paidAmount = spec.status === 'PENDING_PAYMENT' ? 0 : totalPremium * 0.85;
+    const outstandingAmount = Math.max(0, totalPremium - paidAmount);
+
+    const onboardingCase = onboardingRows[(i - 1) % onboardingRows.length] ?? null;
+    const sourceLeadId = sampleId(`lead-${pad(((i - 1) % 18) + 1, 3)}`);
+    const agentId = i % 2 === 0 ? agent1.id : agent2.id;
+
+    await prisma.policy.upsert({
+      where: { policyNumber },
+      update: {
+        clientId: client.id,
+        productId: product.id,
+        insurerId: insurer.id,
+        agentId,
+        onboardingCaseId: onboardingCase?.id ?? null,
+        sourceLeadId,
+        startDate,
+        endDate,
+        basePremium: basePremium.toFixed(2) as any,
+        trainingLevy: trainingLevy.toFixed(2) as any,
+        pcifLevy: pcifLevy.toFixed(2) as any,
+        stampDuty: stampDuty.toFixed(2) as any,
+        policyFee: policyFee.toFixed(2) as any,
+        totalPremium: totalPremium.toFixed(2) as any,
+        paymentFrequency: 'ANNUAL' as any,
+        paidAmount: paidAmount.toFixed(2) as any,
+        outstandingAmount: outstandingAmount.toFixed(2) as any,
+        premiumCollectionMode: 'BROKER_COLLECTED' as any,
+        premiumPaidTo: 'BROKER' as any,
+        brokerCollectedAmount: paidAmount.toFixed(2) as any,
+        directToInsurerAmount: '0.00' as any,
+        totalPremiumAmount: totalPremium.toFixed(2) as any,
+        outstandingPremiumAmount: outstandingAmount.toFixed(2) as any,
+        commissionSettlementMode: 'PAID_BY_INSURER' as any,
+        insurerCommissionStatus: outstandingAmount === 0 ? ('RECEIVABLE' as any) : ('NOT_DUE' as any),
+        status: spec.status as any,
+        underwritingStatus: (spec.status === 'ACTIVE' ? 'APPROVED' : 'PENDING') as any,
+        suspensionDate: spec.status === 'SUSPENDED' ? daysFromNow(-5) : null,
+        suspensionReason: spec.status === 'SUSPENDED' ? `${SEED_TAG} premium follow-up` : null,
+        notes: `${SEED_TAG} policy notes`,
+        createdById: relationshipUser.id,
+      },
+      create: {
+        id,
+        policyNumber,
+        clientId: client.id,
+        productId: product.id,
+        insurerId: insurer.id,
+        agentId,
+        onboardingCaseId: onboardingCase?.id ?? null,
+        sourceLeadId,
+        startDate,
+        endDate,
+        basePremium: basePremium.toFixed(2) as any,
+        trainingLevy: trainingLevy.toFixed(2) as any,
+        pcifLevy: pcifLevy.toFixed(2) as any,
+        stampDuty: stampDuty.toFixed(2) as any,
+        policyFee: policyFee.toFixed(2) as any,
+        totalPremium: totalPremium.toFixed(2) as any,
+        paymentFrequency: 'ANNUAL' as any,
+        paidAmount: paidAmount.toFixed(2) as any,
+        outstandingAmount: outstandingAmount.toFixed(2) as any,
+        premiumCollectionMode: 'BROKER_COLLECTED' as any,
+        premiumPaidTo: 'BROKER' as any,
+        brokerCollectedAmount: paidAmount.toFixed(2) as any,
+        directToInsurerAmount: '0.00' as any,
+        totalPremiumAmount: totalPremium.toFixed(2) as any,
+        outstandingPremiumAmount: outstandingAmount.toFixed(2) as any,
+        commissionSettlementMode: 'PAID_BY_INSURER' as any,
+        insurerCommissionStatus: outstandingAmount === 0 ? ('RECEIVABLE' as any) : ('NOT_DUE' as any),
+        status: spec.status as any,
+        underwritingStatus: (spec.status === 'ACTIVE' ? 'APPROVED' : 'PENDING') as any,
+        suspensionDate: spec.status === 'SUSPENDED' ? daysFromNow(-5) : null,
+        suspensionReason: spec.status === 'SUSPENDED' ? `${SEED_TAG} premium follow-up` : null,
+        notes: `${SEED_TAG} policy notes`,
+        createdById: relationshipUser.id,
+      },
+    });
+
+    // Payments & allocations for non-pending policies
+    if (paidAmount > 0) {
+      const policyRow = await prisma.policy.findUniqueOrThrow({ where: { policyNumber } });
+      const policyDbId = policyRow.id;
+
+      const payId = sampleId(`payment-${pad(i, 3)}`);
+      const paymentNumber = makePaymentNumber(i);
+      const method = (i % 2 === 0 ? 'MPESA' : 'BANK_TRANSFER') as any;
+      await prisma.payment.upsert({
+        where: { paymentNumber },
+        update: {
+          clientId: client.id,
+          amount: paidAmount.toFixed(2) as any,
+          currency: 'KES',
+          premiumCollectionMode: 'BROKER_COLLECTED' as any,
+          premiumPaidTo: 'BROKER' as any,
+          method,
+          reference: `REF-${paymentNumber}`,
+          transactionCode: method === 'MPESA' ? `QWE${pad(100000 + i, 6)}` : null,
+          paymentDate: daysFromNow(-10 - i),
+          status: 'COMPLETED' as any,
+          verifiedById: financeUser.id,
+          verifiedAt: daysFromNow(-9 - i),
+          notes: `${SEED_TAG} payment`,
+          createdById: financeUser.id,
+        },
+        create: {
+          id: payId,
+          paymentNumber,
+          clientId: client.id,
+          amount: paidAmount.toFixed(2) as any,
+          currency: 'KES',
+          premiumCollectionMode: 'BROKER_COLLECTED' as any,
+          premiumPaidTo: 'BROKER' as any,
+          method,
+          reference: `REF-${paymentNumber}`,
+          transactionCode: method === 'MPESA' ? `QWE${pad(100000 + i, 6)}` : null,
+          paymentDate: daysFromNow(-10 - i),
+          status: 'COMPLETED' as any,
+          verifiedById: financeUser.id,
+          verifiedAt: daysFromNow(-9 - i),
+          notes: `${SEED_TAG} payment`,
+          createdById: financeUser.id,
+        },
+      });
+
+      const paymentRow = await prisma.payment.findUniqueOrThrow({ where: { paymentNumber } });
+      const paymentDbId = paymentRow.id;
+
+      const allocationId = sampleId(`allocation-${pad(i, 3)}`);
+      await prisma.paymentAllocation.upsert({
+        where: { id: allocationId },
+        update: {
+          paymentId: paymentDbId,
+          policyId: policyDbId,
+          amount: paidAmount.toFixed(2) as any,
+          notes: `${SEED_TAG} allocation`,
+          createdById: financeUser.id,
+        },
+        create: {
+          id: allocationId,
+          paymentId: paymentDbId,
+          policyId: policyDbId,
+          amount: paidAmount.toFixed(2) as any,
+          notes: `${SEED_TAG} allocation`,
+          createdById: financeUser.id,
+        },
+      });
+
+      const receiptId = sampleId(`receipt-${pad(i, 3)}`);
+      const receiptNumber = makeReceiptNumber(i);
+      const receiptClientName = resolveClientName({
+        companyName: client.companyName ?? null,
+        firstName: client.firstName ?? null,
+        lastName: client.lastName ?? null,
+        clientNumber: client.clientNumber,
+      });
+      await prisma.receipt.upsert({
+        where: { receiptNumber },
+        update: {
+          paymentId: paymentDbId,
+          clientName: receiptClientName,
+          clientAddress: client.physicalAddress ?? null,
+          amount: paidAmount.toFixed(2) as any,
+          amountInWords: `KES ${paidAmount.toFixed(0)} only`,
+          particulars: `${SEED_TAG} Premium payment for ${policyNumber}`,
+          issuedById: financeUser.id,
+        },
+        create: {
+          id: receiptId,
+          receiptNumber,
+          paymentId: paymentDbId,
+          clientName: receiptClientName,
+          clientAddress: client.physicalAddress ?? null,
+          amount: paidAmount.toFixed(2) as any,
+          amountInWords: `KES ${paidAmount.toFixed(0)} only`,
+          particulars: `${SEED_TAG} Premium payment for ${policyNumber}`,
+          issuedById: financeUser.id,
+        },
+      });
+
+      // Commission entry (10% of paid premium) - derived from the commission rule seeded above
+      const commissionId = sampleId(`commission-${pad(i, 3)}`);
+      const commissionRate = 0.10;
+      const grossCommission = paidAmount * commissionRate;
+      const withholdingTax = grossCommission * 0.05;
+      const netCommission = grossCommission - withholdingTax;
+
+      await prisma.commissionEntry.upsert({
+        where: { id: commissionId },
+        update: {
+          agentId,
+          policyId: policyDbId,
+          insurerId: insurer.id,
+          productId: product.id,
+          premiumAmount: paidAmount.toFixed(2) as any,
+          commissionRate: commissionRate.toFixed(4) as any,
+          grossCommission: grossCommission.toFixed(2) as any,
+          withholdingTax: withholdingTax.toFixed(2) as any,
+          otherDeductions: '0.00' as any,
+          netCommission: netCommission.toFixed(2) as any,
+          commissionType: 'FIRST_YEAR' as any,
+          commissionSource: 'BROKER_COLLECTED_PREMIUM' as any,
+          paymentCollectionMode: 'BROKER_COLLECTED' as any,
+          settlementMode: 'PAID_BY_INSURER' as any,
+          insurerCommissionStatus: 'RECEIVABLE' as any,
+          commissionReceivableAmount: netCommission.toFixed(2) as any,
+          commissionReceivedAmount: '0.00' as any,
+          status: 'CALCULATED' as any,
+          earnedDate: daysFromNow(-8 - i),
+          notes: `${SEED_TAG} commission derived from payment`,
+        },
+        create: {
+          id: commissionId,
+          agentId,
+          policyId: policyDbId,
+          insurerId: insurer.id,
+          productId: product.id,
+          premiumAmount: paidAmount.toFixed(2) as any,
+          commissionRate: commissionRate.toFixed(4) as any,
+          grossCommission: grossCommission.toFixed(2) as any,
+          withholdingTax: withholdingTax.toFixed(2) as any,
+          otherDeductions: '0.00' as any,
+          netCommission: netCommission.toFixed(2) as any,
+          commissionType: 'FIRST_YEAR' as any,
+          commissionSource: 'BROKER_COLLECTED_PREMIUM' as any,
+          paymentCollectionMode: 'BROKER_COLLECTED' as any,
+          settlementMode: 'PAID_BY_INSURER' as any,
+          insurerCommissionStatus: 'RECEIVABLE' as any,
+          commissionReceivableAmount: netCommission.toFixed(2) as any,
+          commissionReceivedAmount: '0.00' as any,
+          status: 'CALCULATED' as any,
+          earnedDate: daysFromNow(-8 - i),
+          notes: `${SEED_TAG} commission derived from payment`,
+        },
+      });
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // 9) Claims (4) connected to policies/clients/products/insurers
+  // ─────────────────────────────────────────────────────────
+  const policyRows = await prisma.policy.findMany({ where: { policyNumber: { startsWith: 'POL-2026-' } } });
+  const claimStatuses = ['REGISTERED', 'UNDER_REVIEW', 'SETTLEMENT_PENDING', 'SETTLED'] as const;
+  for (let i = 1; i <= 4; i++) {
+    const policy = policyRows[i - 1];
+    if (!policy) throw new Error('Not enough policies for claims');
+    const client = await prisma.client.findUnique({ where: { id: policy.clientId } });
+    if (!client) throw new Error('Client not found for claim policy');
+    const product = await prisma.product.findUnique({ where: { id: policy.productId } });
+    if (!product) throw new Error('Product not found for claim policy');
+    const insurer = await prisma.insurer.findUnique({ where: { id: policy.insurerId } });
+    if (!insurer) throw new Error('Insurer not found for claim policy');
+
+    const claimId = sampleId(`claim-${pad(i, 3)}`);
+    const claimNumber = `CLM-2026-${pad(i, 6)}`;
+    const status = claimStatuses[i - 1];
+    const claimed = 250000 + i * 50000;
+    const approved = status === 'SETTLED' ? claimed * 0.85 : status === 'SETTLEMENT_PENDING' ? claimed * 0.8 : null;
+    const paid = status === 'SETTLED' ? (approved ?? 0) : 0;
+
+    const claimantName = resolveClientName({
+      companyName: client.companyName ?? null,
+      firstName: client.firstName ?? null,
+      lastName: client.lastName ?? null,
+      clientNumber: client.clientNumber,
+    });
+    await prisma.claim.upsert({
+      where: { claimNumber },
+      update: {
+        policyId: policy.id,
+        clientId: client.id,
+        insurerId: insurer.id,
+        productId: product.id,
+        claimantName,
+        claimantPhone: client.phone ?? null,
+        claimantEmail: client.email ?? null,
+        claimantRelationship: 'Policyholder',
+        dateOfLoss: daysFromNow(-30 - i),
+        dateReported: daysFromNow(-28 - i),
+        lossType: product.insuranceClass === ('MOTOR_PRIVATE' as any) ? 'ACCIDENT' : 'INCIDENT',
+        lossCategory: product.insuranceClass === ('MOTOR_PRIVATE' as any) ? 'MOTOR_ACCIDENT' : 'GENERAL',
+        lossDescription: `${SEED_TAG} sample claim incident`,
+        lossLocation: 'Nairobi',
+        amountClaimed: claimed.toFixed(2) as any,
+        amountAssessed: approved ? (approved * 0.95).toFixed(2) as any : null,
+        amountApproved: approved ? approved.toFixed(2) as any : null,
+        amountPaid: paid.toFixed(2) as any,
+        status: status as any,
+        ownerId: claimsUser.id,
+        notes: `${SEED_TAG} claim notes`,
+        submittedToInsurerAt: status === 'UNDER_REVIEW' || status === 'SETTLEMENT_PENDING' || status === 'SETTLED' ? daysFromNow(-20) : null,
+        approvedAt: status === 'SETTLEMENT_PENDING' || status === 'SETTLED' ? daysFromNow(-10) : null,
+        settledAt: status === 'SETTLED' ? daysFromNow(-2) : null,
+        createdById: claimsUser.id,
+      },
+      create: {
+        id: claimId,
+        claimNumber,
+        policyId: policy.id,
+        clientId: client.id,
+        insurerId: insurer.id,
+        productId: product.id,
+        claimantName,
+        claimantPhone: client.phone ?? null,
+        claimantEmail: client.email ?? null,
+        claimantRelationship: 'Policyholder',
+        dateOfLoss: daysFromNow(-30 - i),
+        dateReported: daysFromNow(-28 - i),
+        lossType: product.insuranceClass === ('MOTOR_PRIVATE' as any) ? 'ACCIDENT' : 'INCIDENT',
+        lossCategory: product.insuranceClass === ('MOTOR_PRIVATE' as any) ? 'MOTOR_ACCIDENT' : 'GENERAL',
+        lossDescription: `${SEED_TAG} sample claim incident`,
+        lossLocation: 'Nairobi',
+        amountClaimed: claimed.toFixed(2) as any,
+        amountAssessed: approved ? (approved * 0.95).toFixed(2) as any : null,
+        amountApproved: approved ? approved.toFixed(2) as any : null,
+        amountPaid: paid.toFixed(2) as any,
+        status: status as any,
+        ownerId: claimsUser.id,
+        notes: `${SEED_TAG} claim notes`,
+        submittedToInsurerAt: status === 'UNDER_REVIEW' || status === 'SETTLEMENT_PENDING' || status === 'SETTLED' ? daysFromNow(-20) : null,
+        approvedAt: status === 'SETTLEMENT_PENDING' || status === 'SETTLED' ? daysFromNow(-10) : null,
+        settledAt: status === 'SETTLED' ? daysFromNow(-2) : null,
+        createdById: claimsUser.id,
+      },
+    });
+
+    const claimRow = await prisma.claim.findUniqueOrThrow({ where: { claimNumber } });
+    const claimDbId = claimRow.id;
+
+    const docId = sampleId(`claim-doc-${pad(i, 3)}`);
+    await prisma.claimDocument.upsert({
+      where: { id: docId },
+      update: {
+        claimId: claimDbId,
+        type: 'CLAIM_FORM',
+        name: `claim-form-${i}.pdf`,
+        fileUrl: `https://example.com/${SEED_TAG}/claim-form-${i}.pdf`,
+        fileSize: 1024 * 200,
+        mimeType: 'application/pdf',
+        status: (status === 'SETTLED' ? 'VERIFIED' : 'PENDING') as any,
+        uploadedById: claimsUser.id,
+        verifiedById: status === 'SETTLED' ? claimsUser.id : null,
+        verifiedAt: status === 'SETTLED' ? daysFromNow(-3) : null,
+        notes: SEED_TAG,
+      },
+      create: {
+        id: docId,
+        claimId: claimDbId,
+        type: 'CLAIM_FORM',
+        name: `claim-form-${i}.pdf`,
+        fileUrl: `https://example.com/${SEED_TAG}/claim-form-${i}.pdf`,
+        fileSize: 1024 * 200,
+        mimeType: 'application/pdf',
+        status: (status === 'SETTLED' ? 'VERIFIED' : 'PENDING') as any,
+        uploadedById: claimsUser.id,
+        verifiedById: status === 'SETTLED' ? claimsUser.id : null,
+        verifiedAt: status === 'SETTLED' ? daysFromNow(-3) : null,
+        notes: SEED_TAG,
+      },
+    });
+
+    const historyId = sampleId(`claim-history-${pad(i, 3)}`);
+    await prisma.claimStatusHistory.upsert({
+      where: { id: historyId },
+      update: {
+        claimId: claimDbId,
+        fromStatus: 'REPORTED' as any,
+        toStatus: status as any,
+        reason: `${SEED_TAG} status seeded`,
+        changedById: claimsUser.id,
+        metadata: { tag: SEED_TAG },
+      },
+      create: {
+        id: historyId,
+        claimId: claimDbId,
+        fromStatus: 'REPORTED' as any,
+        toStatus: status as any,
+        reason: `${SEED_TAG} status seeded`,
+        changedById: claimsUser.id,
+        metadata: { tag: SEED_TAG },
+      },
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // 10) Tasks (up to 20) connected across entities + activities
+  // ─────────────────────────────────────────────────────────
+  const seededClaims = await prisma.claim.findMany({ where: { claimNumber: { startsWith: 'CLM-2026-' } } });
+  const seededLeads = await prisma.lead.findMany({
+    where: { sourceDetail: { contains: SEED_TAG } },
+  });
+  const seededPolicies = await prisma.policy.findMany({ where: { policyNumber: { startsWith: 'POL-2026-' } } });
+
+  const taskStatuses = ['PENDING', 'IN_PROGRESS', 'COMPLETED'] as const;
+  for (let i = 1; i <= 20; i++) {
+    const taskId = sampleId(`task-${pad(i, 3)}`);
+    const status = taskStatuses[(i - 1) % taskStatuses.length];
+    const priority = (i % 4 === 0 ? 'URGENT' : i % 4 === 1 ? 'HIGH' : i % 4 === 2 ? 'NORMAL' : 'LOW') as any;
+    const client = clientRows[(i - 1) % clientRows.length];
+    const policy = seededPolicies[(i - 1) % seededPolicies.length];
+    const claim = seededClaims[(i - 1) % seededClaims.length];
+    const lead = seededLeads[(i - 1) % seededLeads.length];
+    const onboarding = onboardingRows[(i - 1) % onboardingRows.length];
+
+    // Distribute polymorphic links
+    const linkType = i % 5;
+    const leadId = linkType === 0 ? lead?.id ?? null : null;
+    const clientId = linkType === 1 ? client.id : linkType === 4 ? client.id : null;
+    const policyId = linkType === 2 ? policy?.id ?? null : linkType === 4 ? policy?.id ?? null : null;
+    const claimId = linkType === 3 ? claim?.id ?? null : linkType === 4 ? claim?.id ?? null : null;
+    const onboardingCaseId = linkType === 4 ? onboarding?.id ?? null : null;
+
+    const assignedToId = i % 4 === 0 ? relationshipUser.id : i % 4 === 1 ? salesUser.id : i % 4 === 2 ? claimsUser.id : financeUser.id;
+
+    await prisma.task.upsert({
+      where: { id: taskId },
+      update: {
+        title: `Task ${pad(i, 2)} - Follow up`,
+        description: `${SEED_TAG} sample task for testing`,
+        category: linkType === 0 ? 'LEAD' : linkType === 1 ? 'CLIENT' : linkType === 2 ? 'POLICY' : linkType === 3 ? 'CLAIM' : 'ONBOARDING',
+        dueDate: daysFromNow((i % 14) - 7),
+        priority,
+        status: status as any,
+        leadId,
+        clientId,
+        policyId,
+        claimId,
+        onboardingCaseId,
+        assignedToId,
+        completedAt: status === 'COMPLETED' ? daysFromNow(-1) : null,
+        completedById: status === 'COMPLETED' ? assignedToId : null,
+        createdById: relationshipUser.id,
+      },
+      create: {
+        id: taskId,
+        title: `Task ${pad(i, 2)} - Follow up`,
+        description: `${SEED_TAG} sample task for testing`,
+        category: linkType === 0 ? 'LEAD' : linkType === 1 ? 'CLIENT' : linkType === 2 ? 'POLICY' : linkType === 3 ? 'CLAIM' : 'ONBOARDING',
+        dueDate: daysFromNow((i % 14) - 7),
+        priority,
+        status: status as any,
+        leadId,
+        clientId,
+        policyId,
+        claimId,
+        onboardingCaseId,
+        assignedToId,
+        completedAt: status === 'COMPLETED' ? daysFromNow(-1) : null,
+        completedById: status === 'COMPLETED' ? assignedToId : null,
+        createdById: relationshipUser.id,
+      },
+    });
+
+    const activityId = sampleId(`task-activity-${pad(i, 3)}`);
+    await prisma.taskActivity.upsert({
+      where: { id: activityId },
+      update: {
+        taskId,
+        type: 'NOTE',
+        description: `${SEED_TAG} created via seed`,
+        metadata: { tag: SEED_TAG, idx: i },
+        createdById: relationshipUser.id,
+      },
+      create: {
+        id: activityId,
+        taskId,
+        type: 'NOTE',
+        description: `${SEED_TAG} created via seed`,
+        metadata: { tag: SEED_TAG, idx: i },
+        createdById: relationshipUser.id,
+      },
+    });
+  }
+
+  // Create a small invoice set (not requested explicitly, but helps payments UI)
+  for (let i = 1; i <= 3; i++) {
+    const invId = sampleId(`invoice-${pad(i, 3)}`);
+    const invoiceNumber = makeInvoiceNumber(i);
+    const client = clientRows[i - 1];
+    const policy = seededPolicies[i - 1];
+    const amount = 15000 + i * 2500;
+    await prisma.invoice.upsert({
+      where: { invoiceNumber },
+      update: {
+        clientId: client.id,
+        insurerId: policy?.insurerId ?? null,
+        invoiceDate: daysFromNow(-15),
+        dueDate: daysFromNow(15),
+        subtotal: amount.toFixed(2) as any,
+        taxAmount: '0.00' as any,
+        totalAmount: amount.toFixed(2) as any,
+        status: 'ISSUED' as any,
+        paidAmount: '0.00' as any,
+        balanceDue: amount.toFixed(2) as any,
+        notes: `${SEED_TAG} sample invoice`,
+        createdById: financeUser.id,
+      },
+      create: {
+        id: invId,
+        invoiceNumber,
+        clientId: client.id,
+        insurerId: policy?.insurerId ?? null,
+        invoiceDate: daysFromNow(-15),
+        dueDate: daysFromNow(15),
+        subtotal: amount.toFixed(2) as any,
+        taxAmount: '0.00' as any,
+        totalAmount: amount.toFixed(2) as any,
+        status: 'ISSUED' as any,
+        paidAmount: '0.00' as any,
+        balanceDue: amount.toFixed(2) as any,
+        notes: `${SEED_TAG} sample invoice`,
+        createdById: financeUser.id,
+      },
+    });
+
+    const invoiceRow = await prisma.invoice.findUniqueOrThrow({ where: { invoiceNumber } });
+    const invoiceDbId = invoiceRow.id;
+
+    const lineId = sampleId(`invoice-line-${pad(i, 3)}`);
+    await prisma.invoiceLine.upsert({
+      where: { id: lineId },
+      update: {
+        invoiceId: invoiceDbId,
+        description: `${SEED_TAG} admin service fee`,
+        quantity: 1,
+        unitPrice: amount.toFixed(2) as any,
+        amount: amount.toFixed(2) as any,
+        policyId: policy?.id ?? null,
+      },
+      create: {
+        id: lineId,
+        invoiceId: invoiceDbId,
+        description: `${SEED_TAG} admin service fee`,
+        quantity: 1,
+        unitPrice: amount.toFixed(2) as any,
+        amount: amount.toFixed(2) as any,
+        policyId: policy?.id ?? null,
+      },
+    });
+  }
+
+  console.log('✓ Sample data seeded successfully');
   console.log('\n✅ Seed completed successfully!');
 }
 
