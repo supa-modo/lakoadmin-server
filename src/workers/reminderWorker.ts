@@ -3,6 +3,7 @@ import { getRedisClient } from '../config/redis';
 import { QUEUE_NAMES } from '../config/queues';
 import { logger } from '../utils/logger';
 import { createNotification } from '../modules/communications/notifications.service';
+import { runRenewalReminderScan } from '../modules/renewals/renewalReminder.service';
 
 export function startReminderWorker(): Worker | null {
   const redis = getRedisClient();
@@ -14,6 +15,9 @@ export function startReminderWorker(): Worker | null {
   const worker = new Worker(
     QUEUE_NAMES.RENEWAL_REMINDERS,
     async (job: Job) => {
+      if (job.name === 'scan-renewal-reminders') {
+        return runRenewalReminderScan(job.data?.anchorDate ? new Date(job.data.anchorDate) : new Date(), job.data?.userId);
+      }
       const data = job.data as { userId?: string; title?: string; message?: string; relatedEntityType?: string; relatedEntityId?: string };
       if (!data.userId) return;
       await createNotification({

@@ -1,12 +1,16 @@
+// @ts-nocheck
 import { createHash } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import path from 'path';
+import { seedRealisticSampleData } from './realistic-sample-data';
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-const prisma = new PrismaClient();
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
+const prisma = new PrismaClient({ adapter });
 const SEED_TAG = '[SEED:sample]';
 
 // ─────────────────────────────────────────────────────────
@@ -121,6 +125,7 @@ const PERMISSIONS = [
   { name: 'commissions.read', module: 'commissions', action: 'read', description: 'View commissions' },
   { name: 'commissions.create', module: 'commissions', action: 'create', description: 'Create commission entries' },
   { name: 'commissions.calculate', module: 'commissions', action: 'calculate', description: 'Calculate commissions' },
+  { name: 'commissions.override', module: 'commissions', action: 'override', description: 'Override commission calculations with a reason' },
   { name: 'commissions.approve', module: 'commissions', action: 'approve', description: 'Approve commissions' },
   { name: 'commissions.pay', module: 'commissions', action: 'pay', description: 'Process commission payments' },
   { name: 'commissions.hold', module: 'commissions', action: 'hold', description: 'Hold commissions' },
@@ -163,6 +168,9 @@ const PERMISSIONS = [
   { name: 'reports.read', module: 'reports', action: 'read', description: 'View reports' },
   { name: 'reports.export', module: 'reports', action: 'export', description: 'Export reports' },
 
+  // Executive
+  { name: 'executive.dashboard.read', module: 'executive', action: 'dashboard.read', description: 'View director executive command center' },
+
   // Settings
   { name: 'settings.read', module: 'settings', action: 'read', description: 'View settings' },
   { name: 'settings.update', module: 'settings', action: 'update', description: 'Update settings' },
@@ -170,7 +178,10 @@ const PERMISSIONS = [
   // Documents
   { name: 'documents.read', module: 'documents', action: 'read', description: 'View documents' },
   { name: 'documents.create', module: 'documents', action: 'create', description: 'Upload documents' },
+  { name: 'documents.update', module: 'documents', action: 'update', description: 'Update document metadata' },
+  { name: 'documents.verify', module: 'documents', action: 'verify', description: 'Verify or reject documents' },
   { name: 'documents.delete', module: 'documents', action: 'delete', description: 'Delete documents' },
+  { name: 'documents.requirements.manage', module: 'documents', action: 'requirements.manage', description: 'Manage reusable document requirements' },
 
   // Communications & Automation
   { name: 'communications.read', module: 'communications', action: 'read', description: 'View communications center and entity timelines' },
@@ -340,7 +351,7 @@ const ROLES: Record<string, {
       'policies.read', 'policies.create',
       'insurers.read', 'products.read',
       'claims.read',
-      'documents.read', 'documents.create',
+      'documents.read', 'documents.create', 'documents.update',
       'communications.read', 'communications.send', 'communications.templates.read',
       'notifications.read',
       'reports.read',
@@ -359,7 +370,7 @@ const ROLES: Record<string, {
       'insurers.read', 'products.read',
       'claims.read', 'claims.create',
       'payments.read',
-      'documents.read', 'documents.create',
+      'documents.read', 'documents.create', 'documents.update', 'documents.verify',
       'communications.read', 'communications.send', 'communications.schedule',
       'communications.templates.read', 'communications.logs.read',
       'notifications.read',
@@ -403,7 +414,7 @@ const ROLES: Record<string, {
       'communications.read', 'communications.send', 'communications.templates.read',
       'communications.logs.read', 'notifications.read',
       'reports.read', 'reports.export',
-      'documents.read',
+      'documents.read', 'documents.create',
     ],
   },
   FinanceManager: {
@@ -427,13 +438,14 @@ const ROLES: Record<string, {
       'accounting.commission_receivables.manage', 'accounting.agent_payables.manage',
       'accounting.chart_of_accounts.manage', 'accounting.journals.reverse',
       'accounting.reports.read', 'accounting.settings.manage',
-      'commissions.read', 'commissions.calculate', 'commissions.approve', 'commissions.pay', 'commissions.hold',
+      'commissions.read', 'commissions.calculate', 'commissions.override', 'commissions.approve', 'commissions.pay', 'commissions.hold',
       'commissions.clawback', 'commissions.statement',
+      'executive.dashboard.read',
       'communications.read', 'communications.send', 'communications.send_bulk', 'communications.schedule',
       'communications.templates.read', 'communications.campaigns.read', 'communications.logs.read',
       'notifications.read', 'notifications.manage',
       'reports.read', 'reports.export',
-      'documents.read',
+      'documents.read', 'documents.create', 'documents.update', 'documents.verify',
     ],
   },
   OpsManager: {
@@ -453,8 +465,9 @@ const ROLES: Record<string, {
       'payments.read',
       'agents.read',
       'commissions.read',
+      'executive.dashboard.read',
       'reports.read', 'reports.export',
-      'documents.read',
+      'documents.read', 'documents.create', 'documents.update', 'documents.verify', 'documents.requirements.manage',
       'settings.read',
       'communications.read', 'communications.send', 'communications.send_bulk', 'communications.schedule',
       'communications.templates.read', 'communications.templates.create', 'communications.templates.update',
@@ -488,6 +501,7 @@ const ROLES: Record<string, {
       'accounting.transactions.read', 'accounting.reports.read', 'accounting.reports.view',
       'commissions.read',
       'audit.read',
+      'executive.dashboard.read',
       'communications.read', 'communications.templates.read', 'communications.campaigns.read',
       'communications.logs.read', 'notifications.read',
       'reports.read', 'reports.export',
@@ -587,6 +601,7 @@ async function main(): Promise<void> {
     { key: 'auth.maxLoginAttempts', value: '5', type: 'number', category: 'security', description: 'Maximum login attempts before lockout' },
     { key: 'auth.lockoutMinutes', value: '15', type: 'number', category: 'security', description: 'Lockout duration in minutes' },
     { key: 'policy.renewalReminderDays', value: '30,15,7,1', type: 'string', category: 'policies', description: 'Days before policy expiry to send renewal reminders' },
+    { key: 'commission.defaultAgencyCommissionRate', value: '0.10', type: 'number', category: 'commissions', description: 'Fallback agency commission rate used when no active commission rule matches' },
   ];
 
   for (const setting of defaultSettings) {
@@ -677,6 +692,11 @@ async function main(): Promise<void> {
   }
 
   console.log('\n🧪 Seeding sample data...');
+
+  await seedRealisticSampleData(prisma);
+  console.log('Realistic sample data seeded successfully');
+  console.log('\nSeed completed successfully!');
+  return;
 
   const now = new Date();
   const daysFromNow = (n: number) => new Date(now.getTime() + n * 24 * 60 * 60 * 1000);
@@ -1596,6 +1616,178 @@ async function main(): Promise<void> {
   }
 
   // ─────────────────────────────────────────────────────────
+  // Explicit connected payment mode scenarios for workflow demos.
+  const corporateDirectPolicy = await prisma.policy.findUnique({ where: { policyNumber: makePolicyNumber(2) }, include: { client: true, insurer: true } });
+  if (corporateDirectPolicy) {
+    const directAmount = Number(corporateDirectPolicy.totalPremium);
+    const proofId = sampleId('document-direct-insurer-proof');
+    await prisma.document.upsert({
+      where: { id: proofId },
+      update: {
+        entityType: 'POLICY',
+        entityId: corporateDirectPolicy.id,
+        relatedEntityType: 'DIRECT_INSURER_PAYMENT_STAGED',
+        relatedEntityId: corporateDirectPolicy.id,
+        clientId: corporateDirectPolicy.clientId,
+        policyId: corporateDirectPolicy.id,
+        insurerId: corporateDirectPolicy.insurerId,
+        type: 'PROOF_OF_PAYMENT',
+        documentType: 'PROOF_OF_PAYMENT',
+        category: 'PAYMENTS',
+        name: 'direct-insurer-bank-slip.pdf',
+        title: 'Direct insurer bank slip',
+        fileName: 'direct-insurer-bank-slip.pdf',
+        originalFileName: 'direct-insurer-bank-slip.pdf',
+        fileUrl: `https://example.com/${SEED_TAG}/direct-insurer-bank-slip.pdf`,
+        storageKey: `${SEED_TAG}/payments/direct-insurer-bank-slip.pdf`,
+        checksum: createHash('sha256').update(proofId).digest('hex'),
+        fileSize: 1024 * 180,
+        mimeType: 'application/pdf',
+        status: 'VERIFIED' as any,
+        visibility: 'INTERNAL' as any,
+        sourceModule: 'payments',
+        isVerified: true,
+        verifiedById: financeUser.id,
+        verifiedAt: daysFromNow(-7),
+        tags: ['direct-insurer-payment', 'proof'],
+        uploadedById: financeUser.id,
+        createdById: financeUser.id,
+      },
+      create: {
+        id: proofId,
+        entityType: 'POLICY',
+        entityId: corporateDirectPolicy.id,
+        relatedEntityType: 'DIRECT_INSURER_PAYMENT_STAGED',
+        relatedEntityId: corporateDirectPolicy.id,
+        clientId: corporateDirectPolicy.clientId,
+        policyId: corporateDirectPolicy.id,
+        insurerId: corporateDirectPolicy.insurerId,
+        type: 'PROOF_OF_PAYMENT',
+        documentType: 'PROOF_OF_PAYMENT',
+        category: 'PAYMENTS',
+        name: 'direct-insurer-bank-slip.pdf',
+        title: 'Direct insurer bank slip',
+        fileName: 'direct-insurer-bank-slip.pdf',
+        originalFileName: 'direct-insurer-bank-slip.pdf',
+        fileUrl: `https://example.com/${SEED_TAG}/direct-insurer-bank-slip.pdf`,
+        storageKey: `${SEED_TAG}/payments/direct-insurer-bank-slip.pdf`,
+        checksum: createHash('sha256').update(proofId).digest('hex'),
+        fileSize: 1024 * 180,
+        mimeType: 'application/pdf',
+        status: 'VERIFIED' as any,
+        visibility: 'INTERNAL' as any,
+        sourceModule: 'payments',
+        isVerified: true,
+        verifiedById: financeUser.id,
+        verifiedAt: daysFromNow(-7),
+        tags: ['direct-insurer-payment', 'proof'],
+        uploadedById: financeUser.id,
+        createdById: financeUser.id,
+      },
+    });
+    await prisma.policy.update({
+      where: { id: corporateDirectPolicy.id },
+      data: {
+        premiumCollectionMode: 'DIRECT_TO_INSURER' as any,
+        premiumPaidTo: 'INSURER' as any,
+        paidAmount: directAmount.toFixed(2) as any,
+        outstandingAmount: '0.00' as any,
+        brokerCollectedAmount: '0.00' as any,
+        directToInsurerAmount: directAmount.toFixed(2) as any,
+        totalPremiumAmount: directAmount.toFixed(2) as any,
+        outstandingPremiumAmount: '0.00' as any,
+        paymentVerificationStatus: 'VERIFIED' as any,
+        commissionSettlementMode: 'PAID_BY_INSURER' as any,
+        insurerCommissionStatus: 'RECEIVABLE' as any,
+      },
+    });
+    await prisma.directInsurerPayment.upsert({
+      where: { id: sampleId('direct-payment-corporate-medical') },
+      update: {
+        policyId: corporateDirectPolicy.id,
+        clientId: corporateDirectPolicy.clientId,
+        insurerId: corporateDirectPolicy.insurerId,
+        amount: directAmount.toFixed(2) as any,
+        paymentDate: daysFromNow(-7),
+        method: 'BANK_TRANSFER' as any,
+        insurerReference: 'DTI-SEED-001',
+        proofOfPaymentDocumentId: proofId,
+        verificationStatus: 'VERIFIED' as any,
+        verifiedById: financeUser.id,
+        verifiedAt: daysFromNow(-6),
+        createdById: financeUser.id,
+      },
+      create: {
+        id: sampleId('direct-payment-corporate-medical'),
+        acknowledgementNumber: 'ACK-2026-900001',
+        policyId: corporateDirectPolicy.id,
+        clientId: corporateDirectPolicy.clientId,
+        insurerId: corporateDirectPolicy.insurerId,
+        amount: directAmount.toFixed(2) as any,
+        paymentDate: daysFromNow(-7),
+        method: 'BANK_TRANSFER' as any,
+        insurerReference: 'DTI-SEED-001',
+        proofOfPaymentDocumentId: proofId,
+        verificationStatus: 'VERIFIED' as any,
+        verifiedById: financeUser.id,
+        verifiedAt: daysFromNow(-6),
+        createdById: financeUser.id,
+      },
+    });
+  }
+
+  const mixedPaymentPolicy = await prisma.policy.findUnique({ where: { policyNumber: makePolicyNumber(3) } });
+  if (mixedPaymentPolicy) {
+    const total = Number(mixedPaymentPolicy.totalPremium);
+    const brokerPortion = Math.round(total * 0.55);
+    const directPortion = total - brokerPortion;
+    await prisma.policy.update({
+      where: { id: mixedPaymentPolicy.id },
+      data: {
+        premiumCollectionMode: 'MIXED' as any,
+        premiumPaidTo: 'BOTH' as any,
+        paidAmount: total.toFixed(2) as any,
+        outstandingAmount: '0.00' as any,
+        brokerCollectedAmount: brokerPortion.toFixed(2) as any,
+        directToInsurerAmount: directPortion.toFixed(2) as any,
+        totalPremiumAmount: total.toFixed(2) as any,
+        outstandingPremiumAmount: '0.00' as any,
+        paymentVerificationStatus: 'VERIFIED' as any,
+      },
+    });
+    await prisma.directInsurerPayment.upsert({
+      where: { id: sampleId('direct-payment-sme-mixed') },
+      update: {
+        policyId: mixedPaymentPolicy.id,
+        clientId: mixedPaymentPolicy.clientId,
+        insurerId: mixedPaymentPolicy.insurerId,
+        amount: directPortion.toFixed(2) as any,
+        paymentDate: daysFromNow(-5),
+        method: 'BANK_TRANSFER' as any,
+        insurerReference: 'MIX-DTI-SEED-001',
+        verificationStatus: 'VERIFIED' as any,
+        verifiedById: financeUser.id,
+        verifiedAt: daysFromNow(-4),
+        createdById: financeUser.id,
+      },
+      create: {
+        id: sampleId('direct-payment-sme-mixed'),
+        acknowledgementNumber: 'ACK-2026-900002',
+        policyId: mixedPaymentPolicy.id,
+        clientId: mixedPaymentPolicy.clientId,
+        insurerId: mixedPaymentPolicy.insurerId,
+        amount: directPortion.toFixed(2) as any,
+        paymentDate: daysFromNow(-5),
+        method: 'BANK_TRANSFER' as any,
+        insurerReference: 'MIX-DTI-SEED-001',
+        verificationStatus: 'VERIFIED' as any,
+        verifiedById: financeUser.id,
+        verifiedAt: daysFromNow(-4),
+        createdById: financeUser.id,
+      },
+    });
+  }
+
   // 9) Claims (4) connected to policies/clients/products/insurers
   // ─────────────────────────────────────────────────────────
   const policyRows = await prisma.policy.findMany({ where: { policyNumber: { startsWith: 'POL-2026-' } } });
@@ -1739,6 +1931,213 @@ async function main(): Promise<void> {
         metadata: { tag: SEED_TAG },
       },
     });
+
+    if (i === 2) {
+      const queryId = sampleId('claim-query-insurer-awaiting-client');
+      await prisma.claimQuery.upsert({
+        where: { id: queryId },
+        update: {
+          claimId: claimDbId,
+          source: 'INSURER' as any,
+          querySource: 'INSURER' as any,
+          queryType: 'DOCUMENT_REQUEST' as any,
+          queryText: 'Insurer requests police abstract and repair estimate before liability review.',
+          requestedBy: 'Jubilee Claims Desk',
+          raisedByName: 'Jubilee Claims Desk',
+          raisedByExternalParty: insurer.name,
+          dueDate: daysFromNow(2),
+          priority: 'HIGH' as any,
+          status: 'CLIENT_RESPONSE_PENDING' as any,
+          insurerReference: `INS-Q-${pad(i, 4)}`,
+          assignedToId: claimsUser.id,
+          createdById: claimsUser.id,
+        },
+        create: {
+          id: queryId,
+          claimId: claimDbId,
+          source: 'INSURER' as any,
+          querySource: 'INSURER' as any,
+          queryType: 'DOCUMENT_REQUEST' as any,
+          queryText: 'Insurer requests police abstract and repair estimate before liability review.',
+          requestedBy: 'Jubilee Claims Desk',
+          raisedByName: 'Jubilee Claims Desk',
+          raisedByExternalParty: insurer.name,
+          dueDate: daysFromNow(2),
+          priority: 'HIGH' as any,
+          status: 'CLIENT_RESPONSE_PENDING' as any,
+          insurerReference: `INS-Q-${pad(i, 4)}`,
+          assignedToId: claimsUser.id,
+          createdById: claimsUser.id,
+        },
+      });
+
+      const queryTaskId = sampleId('task-claim-query-awaiting-client');
+      await prisma.task.upsert({
+        where: { id: queryTaskId },
+        update: {
+          title: 'Collect police abstract for insurer query',
+          description: 'Client must share police abstract and repair estimate for insurer claim review.',
+          category: 'CLAIM_QUERY',
+          dueDate: daysFromNow(2),
+          priority: 'HIGH' as any,
+          status: 'IN_PROGRESS' as any,
+          clientId: client.id,
+          policyId: policy.id,
+          claimId: claimDbId,
+          claimQueryId: queryId,
+          insurerId: insurer.id,
+          assignedToId: claimsUser.id,
+          createdById: claimsUser.id,
+        },
+        create: {
+          id: queryTaskId,
+          title: 'Collect police abstract for insurer query',
+          description: 'Client must share police abstract and repair estimate for insurer claim review.',
+          category: 'CLAIM_QUERY',
+          dueDate: daysFromNow(2),
+          priority: 'HIGH' as any,
+          status: 'IN_PROGRESS' as any,
+          clientId: client.id,
+          policyId: policy.id,
+          claimId: claimDbId,
+          claimQueryId: queryId,
+          insurerId: insurer.id,
+          assignedToId: claimsUser.id,
+          createdById: claimsUser.id,
+        },
+      });
+    }
+
+    if (i === 3) {
+      const queryId = sampleId('claim-query-response-submitted');
+      const queryDocId = sampleId('document-claim-query-response');
+      await prisma.document.upsert({
+        where: { id: queryDocId },
+        update: {
+          entityType: 'CLAIM_QUERY',
+          entityId: queryId,
+          relatedEntityType: 'CLAIM_QUERY',
+          relatedEntityId: queryId,
+          clientId: client.id,
+          policyId: policy.id,
+          claimId: claimDbId,
+          insurerId: insurer.id,
+          type: 'CLAIM_QUERY_RESPONSE',
+          documentType: 'CLAIM_QUERY_RESPONSE',
+          category: 'CLAIMS',
+          name: 'repair-estimate-and-police-abstract.pdf',
+          title: 'Repair estimate and police abstract',
+          fileName: 'repair-estimate-and-police-abstract.pdf',
+          originalFileName: 'repair-estimate-and-police-abstract.pdf',
+          fileUrl: `https://example.com/${SEED_TAG}/repair-estimate-and-police-abstract.pdf`,
+          storageKey: `${SEED_TAG}/claims/repair-estimate-and-police-abstract.pdf`,
+          checksum: createHash('sha256').update(queryDocId).digest('hex'),
+          fileSize: 1024 * 420,
+          mimeType: 'application/pdf',
+          status: 'VERIFIED' as any,
+          visibility: 'INTERNAL' as any,
+          sourceModule: 'claims',
+          isVerified: true,
+          verifiedById: claimsUser.id,
+          verifiedAt: daysFromNow(-4),
+          tags: ['claim-query', 'response', 'police-abstract'],
+          uploadedById: claimsUser.id,
+          createdById: claimsUser.id,
+        },
+        create: {
+          id: queryDocId,
+          entityType: 'CLAIM_QUERY',
+          entityId: queryId,
+          relatedEntityType: 'CLAIM_QUERY',
+          relatedEntityId: queryId,
+          clientId: client.id,
+          policyId: policy.id,
+          claimId: claimDbId,
+          insurerId: insurer.id,
+          type: 'CLAIM_QUERY_RESPONSE',
+          documentType: 'CLAIM_QUERY_RESPONSE',
+          category: 'CLAIMS',
+          name: 'repair-estimate-and-police-abstract.pdf',
+          title: 'Repair estimate and police abstract',
+          fileName: 'repair-estimate-and-police-abstract.pdf',
+          originalFileName: 'repair-estimate-and-police-abstract.pdf',
+          fileUrl: `https://example.com/${SEED_TAG}/repair-estimate-and-police-abstract.pdf`,
+          storageKey: `${SEED_TAG}/claims/repair-estimate-and-police-abstract.pdf`,
+          checksum: createHash('sha256').update(queryDocId).digest('hex'),
+          fileSize: 1024 * 420,
+          mimeType: 'application/pdf',
+          status: 'VERIFIED' as any,
+          visibility: 'INTERNAL' as any,
+          sourceModule: 'claims',
+          isVerified: true,
+          verifiedById: claimsUser.id,
+          verifiedAt: daysFromNow(-4),
+          tags: ['claim-query', 'response', 'police-abstract'],
+          uploadedById: claimsUser.id,
+          createdById: claimsUser.id,
+        },
+      });
+      await prisma.claimQuery.upsert({
+        where: { id: queryId },
+        update: {
+          claimId: claimDbId,
+          source: 'INSURER' as any,
+          querySource: 'INSURER' as any,
+          queryType: 'CLARIFICATION' as any,
+          queryText: 'Confirm accident scene details and attach repair estimate.',
+          requestedBy: 'Claims Adjuster',
+          raisedByName: 'Claims Adjuster',
+          dueDate: daysFromNow(-3),
+          priority: 'NORMAL' as any,
+          status: 'SUBMITTED_TO_INSURER' as any,
+          responseText: 'Client supplied estimate and police abstract; submitted to insurer.',
+          respondedAt: daysFromNow(-4),
+          submittedToInsurerAt: daysFromNow(-3),
+          assignedToId: claimsUser.id,
+          createdById: claimsUser.id,
+        },
+        create: {
+          id: queryId,
+          claimId: claimDbId,
+          source: 'INSURER' as any,
+          querySource: 'INSURER' as any,
+          queryType: 'CLARIFICATION' as any,
+          queryText: 'Confirm accident scene details and attach repair estimate.',
+          requestedBy: 'Claims Adjuster',
+          raisedByName: 'Claims Adjuster',
+          dueDate: daysFromNow(-3),
+          priority: 'NORMAL' as any,
+          status: 'SUBMITTED_TO_INSURER' as any,
+          responseText: 'Client supplied estimate and police abstract; submitted to insurer.',
+          respondedAt: daysFromNow(-4),
+          submittedToInsurerAt: daysFromNow(-3),
+          assignedToId: claimsUser.id,
+          createdById: claimsUser.id,
+        },
+      });
+      await prisma.claimQueryResponse.upsert({
+        where: { id: sampleId('claim-query-response-client') },
+        update: {
+          claimQueryId: queryId,
+          responseSource: 'CLIENT' as any,
+          responseText: 'Attached police abstract and garage repair estimate for insurer review.',
+          respondedByName: claimantName,
+          responseDate: daysFromNow(-4),
+          submittedToInsurerAt: daysFromNow(-3),
+          documents: { set: [{ id: queryDocId }] },
+        },
+        create: {
+          id: sampleId('claim-query-response-client'),
+          claimQueryId: queryId,
+          responseSource: 'CLIENT' as any,
+          responseText: 'Attached police abstract and garage repair estimate for insurer review.',
+          respondedByName: claimantName,
+          responseDate: daysFromNow(-4),
+          submittedToInsurerAt: daysFromNow(-3),
+          documents: { connect: [{ id: queryDocId }] },
+        },
+      });
+    }
   }
 
   // ─────────────────────────────────────────────────────────

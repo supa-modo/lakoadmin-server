@@ -17,6 +17,15 @@ const ClientTypeEnum = z.enum(['INDIVIDUAL', 'CORPORATE', 'SME', 'GROUP', 'GOVER
 const PaymentFrequencyEnum = z.enum(['ANNUAL', 'SEMI_ANNUAL', 'QUARTERLY', 'MONTHLY']);
 const ProductStatusEnum = z.enum(['ACTIVE', 'INACTIVE', 'DISCONTINUED']);
 
+/** JSONB fields may be objects or string lists from legacy/seed data */
+const jsonMapOrStringList = z
+  .union([
+    z.record(z.string(), z.any()),
+    z.array(z.union([z.string(), z.number(), z.boolean()])),
+  ])
+  .optional()
+  .nullable();
+
 export const createProductSchema = z.object({
   insurerId: z.string().uuid('Invalid insurer ID'),
   code: z.string().min(2, 'Product code must be at least 2 characters'),
@@ -32,9 +41,9 @@ export const createProductSchema = z.object({
   maxSumInsured: z.number().positive().optional().nullable(),
   policyDurations: z.array(z.string()).optional(),
   paymentOptions: z.array(PaymentFrequencyEnum).optional(),
-  coverageDetails: z.record(z.any()).optional().nullable(),
+  coverageDetails: jsonMapOrStringList,
   ratingFactors: z.record(z.any()).optional().nullable(),
-  benefits: z.record(z.any()).optional().nullable(),
+  benefits: jsonMapOrStringList,
   requiredDocuments: z.array(z.string()).optional(),
   brochureUrl: z.string().url().optional().nullable().or(z.literal('')),
   status: ProductStatusEnum.optional(),

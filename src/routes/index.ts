@@ -27,6 +27,10 @@ import paymentsRoutes from '../modules/payments/payments.routes';
 import claimsRoutes from '../modules/claims/claims.routes';
 import communicationsRoutes from '../modules/communications/communications.routes';
 import notificationsRoutes from '../modules/communications/notifications.routes';
+import workflowsRoutes from '../modules/workflows/workflows.routes';
+import documentsRoutes from '../modules/documents/documents.routes';
+import executiveRoutes from '../modules/executive/executive.routes';
+import searchRoutes from '../modules/search/search.routes';
 
 const router = Router();
 
@@ -59,5 +63,9 @@ router.use('/communications', communicationsRoutes);
 router.use('/notifications', notificationsRoutes);
 router.use('/agents', agentsRoutes);
 router.use('/accounting', accountingRoutes);
+router.use('/workflows', workflowsRoutes);
+router.use('/documents', documentsRoutes);
+router.use('/executive', executiveRoutes);
+router.use('/search', searchRoutes);
 
 export default router;

@@ -24,6 +24,7 @@ import {
   rejectClaimDocument,
   respondClaimQuery,
   softDeleteClaim,
+  submitClaimQueryToInsurer,
   updateClaim,
   updateClaimAssessment,
   updateClaimDocument,
@@ -295,7 +296,19 @@ export async function updateQueryHandler(req: AuthRequest, res: Response, next: 
 
 export async function respondQueryHandler(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    sendSuccess(res, await respondClaimQuery(req.params.id, req.params.queryId, req.body.responseText, req.user?.id));
+    const query = await respondClaimQuery(req.params.id, req.params.queryId, req.body, req.user?.id);
+    logAudit(req, 'QUERY_RESPOND', 'Claim', req.params.id, null, { queryId: req.params.queryId, documentIds: req.body.documentIds ?? [] });
+    sendSuccess(res, query, 'Claim query response recorded');
+  } catch (err) {
+    if (!handleClaimError(res, err)) next(err);
+  }
+}
+
+export async function submitQueryToInsurerHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const query = await submitClaimQueryToInsurer(req.params.id, req.params.queryId, req.user?.id);
+    logAudit(req, 'QUERY_SUBMIT_TO_INSURER', 'Claim', req.params.id, null, { queryId: req.params.queryId });
+    sendSuccess(res, query, 'Claim query submitted to insurer');
   } catch (err) {
     if (!handleClaimError(res, err)) next(err);
   }

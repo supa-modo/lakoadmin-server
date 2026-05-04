@@ -33,6 +33,7 @@ import {
   respondQueryHandler,
   settlementsHandler,
   statusClaimHandler,
+  submitQueryToInsurerHandler,
   submitToInsurerHandler,
   tasksHandler,
   updateAssessmentHandler,
@@ -117,6 +118,7 @@ router.get('/:id/queries', requirePermission('claims.read'), queriesHandler);
 router.post('/:id/queries', requirePermission('claims.update'), validate(querySchema), createQueryHandler);
 router.patch('/:id/queries/:queryId', requirePermission('claims.update'), validate(updateQuerySchema), updateQueryHandler);
 router.post('/:id/queries/:queryId/respond', requirePermission('claims.update'), validate(respondQuerySchema), respondQueryHandler);
+router.post('/:id/queries/:queryId/submit-to-insurer', requirePermission('claims.submit_to_insurer'), submitQueryToInsurerHandler);
 router.post('/:id/queries/:queryId/close', requirePermission('claims.update'), closeQueryHandler);
 
 router.post('/:id/assessment', requirePermission('claims.assessment.manage'), validate(assessmentSchema), createAssessmentHandler);

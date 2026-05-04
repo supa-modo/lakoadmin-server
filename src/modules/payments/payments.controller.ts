@@ -6,6 +6,7 @@ import { logAudit } from '../../services/auditService';
 import {
   allocatePayment,
   createInvoice,
+  ensureReceiptArtifactForDownload,
   failPayment,
   getPaymentById,
   getPaymentStats,
@@ -212,23 +213,24 @@ export async function getMpesaAccounts(req: AuthRequest, res: Response, next: Ne
 
 export async function downloadReceipt(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const payment = await getPaymentById(req.params.id);
-    if (!payment.receipt?.fileUrl) {
+    const payment = await ensureReceiptArtifactForDownload(req.params.id);
+    const receipt = payment.receipt;
+    if (!receipt?.fileUrl) {
       sendError(res, 'Receipt artifact not found', 404);
       return;
     }
 
-    if (/^https?:\/\//i.test(payment.receipt.fileUrl)) {
-      res.redirect(payment.receipt.fileUrl);
+    if (/^https?:\/\//i.test(receipt.fileUrl)) {
+      res.redirect(receipt.fileUrl);
       return;
     }
 
-    if (!fs.existsSync(payment.receipt.fileUrl)) {
+    if (!fs.existsSync(receipt.fileUrl)) {
       sendError(res, 'Receipt file not found on disk', 404);
       return;
     }
 
-    res.download(payment.receipt.fileUrl, `${payment.receipt.receiptNumber}.${payment.receipt.mimeType === 'application/pdf' ? 'pdf' : 'html'}`);
+    res.download(receipt.fileUrl, `${receipt.receiptNumber}.${receipt.mimeType === 'application/pdf' ? 'pdf' : 'html'}`);
   } catch (error) {
     handlePaymentError(error, res, next);
   }

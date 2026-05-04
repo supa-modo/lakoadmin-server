@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
+import { Decimal } from '@prisma/client/runtime/client';
 import { prisma } from '../../config/database';
 import { AuthRequest } from '../../types/express';
 import { CreateAgentInput, UpdateAgentInput } from './agents.validation';
@@ -200,4 +200,3 @@ export async function getAgentStatement(id: string, dateFrom?: Date, dateTo?: Da
     }), { grossCommission: new Decimal(0), withholdingTax: new Decimal(0), netCommission: new Decimal(0) }),
   };
 }
-

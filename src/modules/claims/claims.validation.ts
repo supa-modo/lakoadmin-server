@@ -127,22 +127,36 @@ export const rejectDocumentSchema = z.object({
 
 export const querySchema = z.object({
   source: z.enum(['INSURER', 'CLIENT', 'INTERNAL']),
+  querySource: z.enum(['INSURER', 'CLIENT', 'INTERNAL']).optional(),
+  queryType: z.enum(['DOCUMENT_REQUEST', 'CLARIFICATION', 'ASSESSMENT_QUERY', 'SETTLEMENT_QUERY', 'GENERAL']).optional(),
   queryText: z.string().min(3),
   requestedBy: z.string().optional().nullable(),
+  raisedByName: z.string().optional().nullable(),
+  raisedByUserId: z.string().uuid().optional().nullable(),
+  raisedByExternalParty: z.string().optional().nullable(),
   requestedAt: dateString.optional(),
   dueDate: dateString.optional().nullable(),
+  priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).optional(),
+  insurerReference: z.string().optional().nullable(),
   assignedToId: z.string().uuid().optional().nullable(),
 });
 
 export const updateQuerySchema = z.object({
   queryText: z.string().optional(),
+  queryType: z.enum(['DOCUMENT_REQUEST', 'CLARIFICATION', 'ASSESSMENT_QUERY', 'SETTLEMENT_QUERY', 'GENERAL']).optional(),
   dueDate: dateString.optional().nullable(),
-  status: z.enum(['OPEN', 'RESPONDED', 'CLOSED', 'OVERDUE']).optional(),
+  priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).optional(),
+  status: z.enum(['OPEN', 'CLIENT_RESPONSE_PENDING', 'RESPONDED', 'SUBMITTED_TO_INSURER', 'CLOSED', 'OVERDUE']).optional(),
+  insurerReference: z.string().optional().nullable(),
   assignedToId: z.string().uuid().optional().nullable(),
 });
 
 export const respondQuerySchema = z.object({
+  responseSource: z.enum(['CLIENT', 'INSURER', 'INTERNAL']).optional(),
   responseText: z.string().min(3),
+  respondedByName: z.string().optional().nullable(),
+  responseDate: dateString.optional(),
+  documentIds: z.array(z.string().uuid()).optional().default([]),
 });
 
 export const assessmentSchema = z.object({

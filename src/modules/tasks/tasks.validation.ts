@@ -10,8 +10,13 @@ export const createTaskSchema = z.object({
   // Entity links
   leadId: z.string().uuid().optional().nullable(),
   clientId: z.string().uuid().optional().nullable(),
+  onboardingCaseId: z.string().uuid().optional().nullable(),
   policyId: z.string().uuid().optional().nullable(),
   claimId: z.string().uuid().optional().nullable(),
+  paymentId: z.string().uuid().optional().nullable(),
+  commissionEntryId: z.string().uuid().optional().nullable(),
+  insurerId: z.string().uuid().optional().nullable(),
+  agentId: z.string().uuid().optional().nullable(),
 
   assignedToId: z.string().uuid().optional().nullable(),
 
@@ -27,6 +32,15 @@ export const updateTaskSchema = z.object({
   priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).optional(),
   status: z.enum(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']).optional(),
   assignedToId: z.string().uuid().optional().nullable(),
+  leadId: z.string().uuid().optional().nullable(),
+  clientId: z.string().uuid().optional().nullable(),
+  onboardingCaseId: z.string().uuid().optional().nullable(),
+  policyId: z.string().uuid().optional().nullable(),
+  claimId: z.string().uuid().optional().nullable(),
+  paymentId: z.string().uuid().optional().nullable(),
+  commissionEntryId: z.string().uuid().optional().nullable(),
+  insurerId: z.string().uuid().optional().nullable(),
+  agentId: z.string().uuid().optional().nullable(),
 
   isRecurring: z.boolean().optional(),
   recurrenceRule: z.string().optional().nullable(),
@@ -39,7 +53,7 @@ export const listTasksSchema = z.object({
   status: z.enum(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']).optional(),
   priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).optional(),
   assignedTo: z.string().uuid().optional(),
-  entityType: z.enum(['lead', 'client', 'policy', 'claim']).optional(),
+  entityType: z.enum(['lead', 'client', 'onboarding', 'policy', 'claim', 'payment', 'commission', 'insurer', 'agent']).optional(),
   entityId: z.string().uuid().optional(),
   overdue: z.enum(['true', 'false']).optional(),
 });

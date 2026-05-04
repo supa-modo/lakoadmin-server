@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ─────────────────────────────────────────────────────────
@@ -215,9 +214,25 @@ enum ClaimQuerySource {
   INTERNAL
 }
 
+enum ClaimQueryType {
+  DOCUMENT_REQUEST
+  CLARIFICATION
+  ASSESSMENT_QUERY
+  SETTLEMENT_QUERY
+  GENERAL
+}
+
+enum ClaimQueryResponseSource {
+  CLIENT
+  INSURER
+  INTERNAL
+}
+
 enum ClaimQueryStatus {
   OPEN
+  CLIENT_RESPONSE_PENDING
   RESPONDED
+  SUBMITTED_TO_INSURER
   CLOSED
   OVERDUE
 }
@@ -273,6 +288,30 @@ enum DirectInsurerPaymentStatus {
   VERIFIED
   REJECTED
   PARTIALLY_VERIFIED
+}
+
+enum DocumentStatus {
+  DRAFT
+  UPLOADED
+  VERIFIED
+  REJECTED
+  EXPIRED
+  ARCHIVED
+  VOIDED
+}
+
+enum DocumentVisibility {
+  INTERNAL
+  CLIENT_VISIBLE
+  INSURER_VISIBLE
+}
+
+enum RenewalReminderStatus {
+  CREATED
+  QUEUED
+  SENT
+  SKIPPED
+  FAILED
 }
 
 enum InvoiceStatus {
@@ -332,11 +371,23 @@ enum CommissionStatus {
   CALCULATED
   PENDING_APPROVAL
   APPROVED
+  RECEIVABLE
+  DEDUCTED_AT_SOURCE
+  PARTIALLY_RECEIVED
+  RECEIVED
   PAYABLE
   HELD
   PAID
+  WRITTEN_OFF
   CANCELLED
   CLAWED_BACK
+}
+
+enum AccountingPostedStatus {
+  NOT_POSTED
+  QUEUED
+  POSTED
+  FAILED
 }
 
 enum LedgerAccountType {
@@ -1027,6 +1078,21 @@ model Task {
   claimId String?
   claim   Claim?  @relation("ClaimTasks", fields: [claimId], references: [id], onDelete: Cascade)
 
+  claimQueryId String?
+  claimQuery   ClaimQuery? @relation("ClaimQueryTasks", fields: [claimQueryId], references: [id], onDelete: Cascade)
+
+  paymentId String?
+  payment   Payment? @relation("PaymentTasks", fields: [paymentId], references: [id], onDelete: SetNull)
+
+  commissionEntryId String?
+  commissionEntry   CommissionEntry? @relation("CommissionEntryTasks", fields: [commissionEntryId], references: [id], onDelete: SetNull)
+
+  insurerId String?
+  insurer   Insurer? @relation("InsurerTasks", fields: [insurerId], references: [id], onDelete: SetNull)
+
+  agentId String?
+  agent   Agent? @relation("AgentTasks", fields: [agentId], references: [id], onDelete: SetNull)
+
   assignedToId String?
   assignedTo   User?   @relation("TaskAssignment", fields: [assignedToId], references: [id], onDelete: SetNull)
 
@@ -1051,6 +1117,11 @@ model Task {
   @@index([onboardingCaseId])
   @@index([policyId])
   @@index([claimId])
+  @@index([claimQueryId])
+  @@index([paymentId])
+  @@index([commissionEntryId])
+  @@index([insurerId])
+  @@index([agentId])
   @@map("tasks")
 }
 
@@ -1116,6 +1187,7 @@ model Insurer {
   directInsurerPayments DirectInsurerPayment[]
   commissionEntries     CommissionEntry[]
   insurerRemittances    InsurerRemittance[]
+  tasks                 Task[] @relation("InsurerTasks")
 
   createdById String?
 
@@ -1325,6 +1397,7 @@ model Policy {
   insurerCommissionStatus    InsurerCommissionStatus  @default(NOT_DUE)
   commissionReceivableAmount Decimal                  @default(0) @db.Decimal(15, 2)
   commissionReceivedAmount   Decimal                  @default(0) @db.Decimal(15, 2)
+  accountingPostedStatus     AccountingPostedStatus   @default(NOT_POSTED)
 
   status             PolicyStatus       @default(DRAFT)
   underwritingStatus UnderwritingStatus @default(PENDING)
@@ -1373,6 +1446,7 @@ model Policy {
   @@index([policyNumber])
   @@index([premiumCollectionMode])
   @@index([insurerCommissionStatus])
+  @@index([accountingPostedStatus])
   @@index([status, endDate])
   @@map("policies")
 }
@@ -1675,26 +1749,63 @@ model ClaimQuery {
   claimId String
   claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
-  source      ClaimQuerySource
-  queryText   String
-  requestedBy String?
-  requestedAt DateTime @default(now())
-  dueDate     DateTime?
-  status      ClaimQueryStatus @default(OPEN)
+  source                ClaimQuerySource
+  querySource           ClaimQuerySource?
+  queryType             ClaimQueryType @default(GENERAL)
+  queryText             String
+  requestedBy           String?
+  requestedAt           DateTime @default(now())
+  raisedByName          String?
+  raisedByUserId        String?
+  raisedByExternalParty String?
+  dueDate               DateTime?
+  priority              TaskPriority @default(NORMAL)
+  status                ClaimQueryStatus @default(OPEN)
+  insurerReference      String?
 
   responseText String?
   respondedAt  DateTime?
   assignedToId String?
+  submittedToInsurerAt DateTime?
+  closedAt DateTime?
 
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  responses ClaimQueryResponse[]
+  tasks     Task[] @relation("ClaimQueryTasks")
+
   @@index([claimId])
   @@index([status])
   @@index([dueDate])
   @@index([assignedToId])
+  @@index([queryType])
+  @@index([priority])
   @@map("claim_queries")
+}
+
+model ClaimQueryResponse {
+  id           String @id @default(uuid())
+  claimQueryId String
+  claimQuery   ClaimQuery @relation(fields: [claimQueryId], references: [id], onDelete: Cascade)
+
+  responseSource ClaimQueryResponseSource
+  responseText   String
+  respondedByUserId String?
+  respondedByName   String?
+  responseDate      DateTime @default(now())
+  submittedToInsurerAt DateTime?
+
+  documents Document[] @relation("ClaimQueryResponseDocuments")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([claimQueryId])
+  @@index([responseSource])
+  @@index([responseDate])
+  @@map("claim_query_responses")
 }
 
 model ClaimAssessment {
@@ -1796,6 +1907,7 @@ model Payment {
   mpesaAccount   MpesaAccount? @relation(fields: [mpesaAccountId], references: [id])
 
   status PaymentStatus @default(PENDING)
+  accountingPostedStatus AccountingPostedStatus @default(NOT_POSTED)
 
   failureReason String?
 
@@ -1814,6 +1926,7 @@ model Payment {
   mpesaTransactions         MpesaTransaction[]
   insurerCommissionReceipts InsurerCommissionReceipt[]
   messageLogs               MessageLog[]
+  tasks                     Task[] @relation("PaymentTasks")
 
   createdById String?
 
@@ -1825,6 +1938,7 @@ model Payment {
   @@index([status])
   @@index([paymentDate])
   @@index([premiumCollectionMode])
+  @@index([accountingPostedStatus])
   @@index([reference])
   @@index([transactionCode])
   @@index([status, paymentDate])
@@ -1861,6 +1975,8 @@ model DirectInsurerPayment {
   rejectionReason    String?
 
   commissionEntryId String?
+  commissionEntry   CommissionEntry? @relation(fields: [commissionEntryId], references: [id], onDelete: SetNull)
+  accountingPostedStatus AccountingPostedStatus @default(NOT_POSTED)
 
   createdById String?
   createdAt   DateTime  @default(now())
@@ -1871,6 +1987,8 @@ model DirectInsurerPayment {
   @@index([clientId])
   @@index([insurerId])
   @@index([verificationStatus])
+  @@index([commissionEntryId])
+  @@index([accountingPostedStatus])
   @@index([paymentDate])
   @@map("direct_insurer_payments")
 }
@@ -2084,6 +2202,7 @@ model Agent {
   policies          Policy[]
   commissionRules   CommissionRule[]
   commissionEntries CommissionEntry[]
+  tasks             Task[] @relation("AgentTasks")
   messageRecipients MessageRecipient[]
 
   createdAt DateTime  @default(now())
@@ -2100,8 +2219,8 @@ model Agent {
 model CommissionEntry {
   id String @id @default(uuid())
 
-  agentId String
-  agent   Agent  @relation(fields: [agentId], references: [id])
+  agentId String?
+  agent   Agent? @relation(fields: [agentId], references: [id])
 
   policyId String
   policy   Policy @relation(fields: [policyId], references: [id])
@@ -2131,6 +2250,7 @@ model CommissionEntry {
   insurerCommissionStatus    InsurerCommissionStatus  @default(NOT_DUE)
   commissionReceivableAmount Decimal                  @default(0) @db.Decimal(15, 2)
   commissionReceivedAmount   Decimal                  @default(0) @db.Decimal(15, 2)
+  accountingPostedStatus     AccountingPostedStatus   @default(NOT_POSTED)
 
   status CommissionStatus @default(CALCULATED)
 
@@ -2153,6 +2273,8 @@ model CommissionEntry {
 
   journalEntries            JournalEntry[]
   insurerCommissionReceipts InsurerCommissionReceipt[]
+  directInsurerPayments     DirectInsurerPayment[]
+  tasks                     Task[] @relation("CommissionEntryTasks")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2164,6 +2286,7 @@ model CommissionEntry {
   @@index([status])
   @@index([commissionSource])
   @@index([insurerCommissionStatus])
+  @@index([accountingPostedStatus])
   @@index([earnedDate])
   @@index([status, earnedDate])
   @@map("commission_entries")
@@ -3201,24 +3324,50 @@ model Document {
   clientId String?
   client   Client? @relation("ClientDocuments", fields: [clientId], references: [id])
 
+  policyId         String?
+  claimId          String?
+  paymentId        String?
+  onboardingCaseId String?
+  expenseId        String?
+  insurerId        String?
+
   type        String
+  title       String?
+  documentType String?
   category    String?
   name        String
   description String?
 
-  fileUrl  String
-  fileSize Int
-  mimeType String
+  fileName         String?
+  originalFileName String?
+  fileUrl          String
+  storageKey       String?
+  checksum         String?
+  fileSize         Int
+  mimeType         String
+
+  status     DocumentStatus @default(UPLOADED)
+  visibility DocumentVisibility @default(INTERNAL)
+
+  sourceModule      String?
+  relatedEntityType String?
+  relatedEntityId   String?
 
   version Int @default(1)
+  parentDocumentId String?
 
   expiryDate DateTime?
 
   isVerified   Boolean   @default(false)
+  uploadedById  String?
   verifiedById String?
   verifiedAt   DateTime?
+  rejectedById String?
+  rejectedAt   DateTime?
+  rejectionReason String?
 
   tags String[]
+  metadata Json?
 
   isConfidential Boolean @default(false)
 
@@ -3227,11 +3376,100 @@ model Document {
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
+  activities DocumentActivity[]
+  claimQueryResponses ClaimQueryResponse[] @relation("ClaimQueryResponseDocuments")
+
   @@index([entityType, entityId])
+  @@index([relatedEntityType, relatedEntityId])
   @@index([clientId])
+  @@index([policyId])
+  @@index([claimId])
+  @@index([paymentId])
+  @@index([onboardingCaseId])
+  @@index([insurerId])
   @@index([type])
+  @@index([documentType])
+  @@index([status])
+  @@index([visibility])
+  @@index([sourceModule])
   @@index([expiryDate])
   @@map("documents")
+}
+
+model DocumentActivity {
+  id String @id @default(uuid())
+
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  action        String
+  performedById String?
+  notes         String?
+  metadata      Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([documentId])
+  @@index([action])
+  @@index([performedById])
+  @@index([createdAt])
+  @@map("document_activities")
+}
+
+model DocumentRequirement {
+  id String @id @default(uuid())
+
+  module         String
+  entityType     String
+  productId      String?
+  insuranceClass InsuranceClass?
+  clientType     ClientType?
+  claimType      String?
+  documentType   String
+  name           String
+  description    String?
+  isRequired     Boolean @default(true)
+  isActive       Boolean @default(true)
+  sortOrder      Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([module])
+  @@index([entityType])
+  @@index([productId])
+  @@index([insuranceClass])
+  @@index([clientType])
+  @@index([claimType])
+  @@index([documentType])
+  @@index([isActive])
+  @@map("document_requirements")
+}
+
+model RenewalReminderLog {
+  id String @id @default(uuid())
+
+  policyId String
+  clientId String
+  cadenceDays Int
+  reminderDate DateTime
+  channel MessageChannel
+  status RenewalReminderStatus @default(CREATED)
+  messageLogId String?
+  taskId String?
+  errorMessage String?
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([policyId, cadenceDays, reminderDate, channel])
+  @@index([policyId])
+  @@index([clientId])
+  @@index([cadenceDays])
+  @@index([reminderDate])
+  @@index([status])
+  @@map("renewal_reminder_logs")
 }
 
 // ─────────────────────────────────────────────────────────

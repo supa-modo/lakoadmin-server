@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { logger } from '../utils/logger';
+import { env } from './env';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -7,7 +9,10 @@ declare global {
 }
 
 const createPrismaClient = (): PrismaClient => {
+  const adapter = new PrismaPg({ connectionString: env.DATABASE_URL });
+
   return new PrismaClient({
+    adapter,
     log: [
       { emit: 'event', level: 'query' },
       { emit: 'event', level: 'error' },

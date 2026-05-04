@@ -3,7 +3,7 @@ import path from 'path';
 import { uploadToS3 } from '../../config/s3';
 import { logger } from '../../utils/logger';
 
-interface ReceiptTemplateData {
+export interface ReceiptTemplateData {
   receiptNumber: string;
   paymentNumber: string;
   clientName: string;

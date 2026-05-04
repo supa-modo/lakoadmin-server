@@ -26,6 +26,9 @@ export const createPolicySchema = z.object({
   premiumCollectionMode: z.enum(['BROKER_COLLECTED', 'DIRECT_TO_INSURER', 'MIXED']).optional().default('BROKER_COLLECTED'),
 
   notes: z.string().optional().nullable(),
+}).refine((value) => new Date(value.endDate) > new Date(value.startDate), {
+  message: 'Cover end date must be after cover start date',
+  path: ['endDate'],
 });
 
 export const updatePolicySchema = z.object({

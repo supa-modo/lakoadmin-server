@@ -6,6 +6,7 @@ import { assertValidTransition, canTransition, isFinalClaimStatus, statusTimesta
 import { createAutomaticClaimTask, createClaimTask } from './claimTasks.service';
 import { getDocumentChecklist } from './claimDocuments.service';
 import { CreateClaimInput, UpdateClaimInput } from './claims.validation';
+import { createMessage } from '../communications/communications.service';
 
 const OPEN_STATUSES: ClaimStatus[] = [
   'REPORTED',
@@ -71,7 +72,14 @@ function claimInclude(): Prisma.ClaimInclude {
     owner: { select: { id: true, firstName: true, lastName: true, email: true } },
     documents: true,
     activities: { orderBy: { createdAt: 'desc' }, take: 3 },
-    queries: { orderBy: { createdAt: 'desc' }, take: 10 },
+    queries: {
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      include: {
+        responses: { orderBy: { responseDate: 'asc' }, include: { documents: true } },
+        tasks: { where: { status: { not: 'CANCELLED' } }, orderBy: { dueDate: 'asc' } },
+      },
+    },
     settlements: { orderBy: { createdAt: 'desc' }, take: 10 },
     assessments: { orderBy: { assessmentDate: 'desc' }, take: 5 },
     tasks: { where: { status: { not: 'CANCELLED' } }, orderBy: { dueDate: 'asc' }, take: 10 },
@@ -503,19 +511,81 @@ export async function rejectClaimDocument(claimId: string, documentId: string, r
 
 export async function createClaimQuery(claimId: string, data: any, userId?: string) {
   const claim = await getEditableClaim(claimId);
-  const query = await prisma.claimQuery.create({
-    data: {
-      ...data,
-      requestedAt: toDate(data.requestedAt) ?? new Date(),
-      dueDate: toDate(data.dueDate),
-      claimId,
-      createdById: userId,
-    },
+  const source = data.source ?? data.querySource ?? 'INSURER';
+  const status = source === 'INSURER' ? 'CLIENT_RESPONSE_PENDING' : 'OPEN';
+  const query = await prisma.$transaction(async (tx) => {
+    const created = await tx.claimQuery.create({
+      data: {
+        source,
+        querySource: source,
+        queryType: data.queryType ?? 'GENERAL',
+        queryText: data.queryText,
+        requestedBy: data.requestedBy ?? data.raisedByName ?? data.raisedByExternalParty ?? null,
+        requestedAt: toDate(data.requestedAt) ?? new Date(),
+        raisedByName: data.raisedByName ?? data.requestedBy ?? null,
+        raisedByUserId: data.raisedByUserId ?? null,
+        raisedByExternalParty: data.raisedByExternalParty ?? null,
+        dueDate: toDate(data.dueDate),
+        priority: data.priority ?? 'NORMAL',
+        status,
+        insurerReference: data.insurerReference ?? null,
+        assignedToId: data.assignedToId ?? claim.ownerId ?? null,
+        claimId,
+        createdById: userId,
+      },
+      include: {
+        responses: { include: { documents: true } },
+        tasks: true,
+      },
+    });
+
+    await tx.claimActivity.create({
+      data: {
+        claimId,
+        type: 'QUERY_LOGGED',
+        description: `Query logged from ${source}`,
+        userId,
+        metadata: { queryId: created.id, queryType: created.queryType, priority: created.priority },
+      },
+    });
+
+    const task = await tx.task.create({
+      data: {
+        title: source === 'INSURER' ? 'Collect client response for insurer query' : 'Review claim query',
+        description: created.queryText,
+        category: 'CLAIM_QUERY',
+        dueDate: created.dueDate ?? addDays(new Date(), source === 'INSURER' ? 2 : 3),
+        priority: created.priority,
+        claimId,
+        claimQueryId: created.id,
+        clientId: claim.clientId,
+        policyId: claim.policyId,
+        assignedToId: created.assignedToId ?? claim.ownerId ?? userId ?? null,
+        createdById: userId ?? null,
+      },
+    });
+    await tx.taskActivity.create({
+      data: {
+        taskId: task.id,
+        type: 'CREATED',
+        description: `Claim query task created: ${task.title}`,
+        createdById: userId ?? null,
+        metadata: { claimId, claimQueryId: created.id },
+      },
+    });
+    await tx.claimActivity.create({
+      data: {
+        claimId,
+        type: 'TASK_CREATED',
+        description: `Task created for query: ${task.title}`,
+        userId,
+        metadata: { taskId: task.id, queryId: created.id },
+      },
+    });
+    return created;
   });
-  await prisma.claimActivity.create({
-    data: { claimId, type: 'QUERY_LOGGED', description: `Query logged from ${query.source}`, userId, metadata: { queryId: query.id } },
-  });
-  if (data.source === 'INSURER') {
+
+  if (source === 'INSURER') {
     if (claim.status === 'SUBMITTED_TO_INSURER') {
       await updateClaimStatus(claimId, 'UNDER_REVIEW', 'Insurer query received after submission', userId, false);
       await updateClaimStatus(claimId, 'ADDITIONAL_INFO_REQUESTED', 'Insurer query logged', userId, true);
@@ -524,20 +594,64 @@ export async function createClaimQuery(claimId: string, data: any, userId?: stri
     } else if (claim.status !== 'ADDITIONAL_INFO_REQUESTED') {
       await createAutomaticClaimTask(claim, 'ADDITIONAL_INFO_REQUESTED', userId).catch(() => null);
     }
+    await createMessage({
+      channel: claim.claimantEmail ? 'EMAIL' : 'SMS',
+      messageType: 'WORKFLOW_AUTOMATION',
+      category: 'CLAIM_DOCUMENT_REQUEST',
+      subject: claim.claimantEmail ? `Clarification needed for claim ${claim.claimNumber}` : null,
+      body: claim.claimantEmail
+        ? `Dear ${claim.claimantName},\n\nYour insurer has requested clarification for claim ${claim.claimNumber}: ${data.queryText}\n\nPlease share the requested information or documents so we can respond to the insurer.\n\nRegards,\nLako Insurance Agency`
+        : `Claim ${claim.claimNumber}: insurer needs clarification. Please share requested info/documents with Lako.`,
+      recipients: [{ recipientType: 'CLIENT', clientId: claim.clientId }],
+      clientId: claim.clientId,
+      policyId: claim.policyId,
+      claimId,
+      relatedEntityType: 'ClaimQuery',
+      relatedEntityId: query.id,
+      sendNow: true,
+    }, userId).catch(() => null);
   }
   return query;
 }
 
-export async function respondClaimQuery(claimId: string, queryId: string, responseText: string, userId?: string) {
+export async function respondClaimQuery(claimId: string, queryId: string, data: any, userId?: string) {
   await getEditableClaim(claimId);
   const existing = await prisma.claimQuery.findFirst({ where: { id: queryId, claimId } });
   if (!existing) throw new Error('Claim query not found');
+  const response = await prisma.claimQueryResponse.create({
+    data: {
+      claimQueryId: queryId,
+      responseSource: data.responseSource ?? 'CLIENT',
+      responseText: data.responseText,
+      respondedByUserId: userId ?? null,
+      respondedByName: data.respondedByName ?? null,
+      responseDate: toDate(data.responseDate) ?? new Date(),
+      documents: data.documentIds?.length
+        ? { connect: data.documentIds.map((id: string) => ({ id })) }
+        : undefined,
+    },
+    include: { documents: true },
+  });
   const query = await prisma.claimQuery.update({
     where: { id: queryId },
-    data: { responseText, respondedAt: new Date(), status: 'RESPONDED' },
+    data: {
+      responseText: data.responseText,
+      respondedAt: response.responseDate,
+      status: 'RESPONDED',
+    },
+    include: {
+      responses: { orderBy: { responseDate: 'asc' }, include: { documents: true } },
+      tasks: true,
+    },
   });
   await prisma.claimActivity.create({
-    data: { claimId, type: 'QUERY_RESPONDED', description: 'Claim query responded', userId, metadata: { queryId } },
+    data: {
+      claimId,
+      type: 'QUERY_RESPONDED',
+      description: 'Claim query response recorded',
+      userId,
+      metadata: { queryId, responseId: response.id, documentIds: data.documentIds ?? [] },
+    },
   });
   return query;
 }
@@ -553,9 +667,30 @@ export async function closeClaimQuery(claimId: string, queryId: string, userId?:
   await getEditableClaim(claimId);
   const existing = await prisma.claimQuery.findFirst({ where: { id: queryId, claimId } });
   if (!existing) throw new Error('Claim query not found');
-  const query = await prisma.claimQuery.update({ where: { id: queryId }, data: { status: 'CLOSED' } });
+  const query = await prisma.claimQuery.update({ where: { id: queryId }, data: { status: 'CLOSED', closedAt: new Date() } });
   await prisma.claimActivity.create({
     data: { claimId, type: 'QUERY_CLOSED', description: 'Claim query closed', userId, metadata: { queryId } },
+  });
+  return query;
+}
+
+export async function submitClaimQueryToInsurer(claimId: string, queryId: string, userId?: string) {
+  await getEditableClaim(claimId);
+  const existing = await prisma.claimQuery.findFirst({ where: { id: queryId, claimId }, include: { responses: true } });
+  if (!existing) throw new Error('Claim query not found');
+  if (existing.responses.length === 0 && !existing.responseText) throw new Error('Record a response before submitting to insurer');
+  const submittedAt = new Date();
+  const query = await prisma.claimQuery.update({
+    where: { id: queryId },
+    data: { status: 'SUBMITTED_TO_INSURER', submittedToInsurerAt: submittedAt },
+    include: { responses: { include: { documents: true }, orderBy: { responseDate: 'asc' } }, tasks: true },
+  });
+  await prisma.claimQueryResponse.updateMany({
+    where: { claimQueryId: queryId, submittedToInsurerAt: null },
+    data: { submittedToInsurerAt: submittedAt },
+  });
+  await prisma.claimActivity.create({
+    data: { claimId, type: 'QUERY_SUBMITTED_TO_INSURER', description: 'Claim query response submitted to insurer', userId, metadata: { queryId } },
   });
   return query;
 }

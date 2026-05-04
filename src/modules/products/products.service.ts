@@ -1,7 +1,7 @@
 import { prisma } from '../../config/database';
 import { CreateProductInput, UpdateProductInput, CreateVersionInput, UpdateVersionInput } from './products.validation';
 import { AuthRequest } from '../../types/express';
-import { Decimal } from '@prisma/client/runtime/library';
+import { Decimal } from '@prisma/client/runtime/client';
 
 function toDecimalOrNull(v: number | null | undefined): Decimal | null {
   if (v == null) return null;

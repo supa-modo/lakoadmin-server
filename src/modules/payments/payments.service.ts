@@ -1,11 +1,18 @@
+import fs from 'fs';
 import { Prisma } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
+import { Decimal } from '@prisma/client/runtime/client';
 import { prisma } from '../../config/database';
 import { AuthRequest } from '../../types/express';
 import { addJob, QUEUE_NAMES } from '../../config/queues';
-import { generatePaymentAcknowledgementArtifact, generateReceiptArtifact } from './receipt.service';
+import {
+  generatePaymentAcknowledgementArtifact,
+  generateReceiptArtifact,
+  type ReceiptTemplateData,
+} from './receipt.service';
 import { postJournal, SYSTEM_ACCOUNTS } from '../accounting/postingEngine.service';
 import { calculateCommission } from '../commissions/commissions.service';
+import { ensureWorkflowTask } from '../workflows/workflowTaskAutomation.service';
+import { sendDirectPaymentAcknowledgement } from '../workflows/workflowCommunicationAutomation.service';
 import {
   AllocatePaymentInput,
   CreateInvoiceInput,
@@ -168,9 +175,12 @@ async function assertAllocationTargets(
     if (allocation.policyId) {
       const policy = await tx.policy.findFirst({
         where: { id: allocation.policyId, clientId, deletedAt: null },
-        select: { id: true, outstandingAmount: true, policyNumber: true, status: true },
+        select: { id: true, outstandingAmount: true, policyNumber: true, status: true, premiumCollectionMode: true },
       });
       if (!policy) throw new Error('Policy allocation target not found for this client');
+      if (policy.premiumCollectionMode === 'DIRECT_TO_INSURER') {
+        throw new Error(`Cannot record broker-collected payment against direct-to-insurer policy ${policy.policyNumber}. Use the direct insurer payment workflow instead.`);
+      }
       if (decimal(allocation.amount).gt(policy.outstandingAmount)) {
         throw new Error(`Allocation exceeds outstanding balance for policy ${policy.policyNumber}`);
       }
@@ -190,6 +200,32 @@ async function assertAllocationTargets(
       }
     }
   }
+}
+
+async function resolveBrokerPaymentMode(
+  tx: Tx,
+  clientId: string,
+  allocations: PaymentAllocationInput[],
+  requestedMode?: 'BROKER_COLLECTED' | 'DIRECT_TO_INSURER' | 'MIXED',
+): Promise<'BROKER_COLLECTED' | 'MIXED'> {
+  const policyIds = Array.from(new Set(allocations.map((allocation) => allocation.policyId).filter(Boolean))) as string[];
+  if (!policyIds.length) {
+    return requestedMode === 'MIXED' ? 'MIXED' : 'BROKER_COLLECTED';
+  }
+
+  const policies = await tx.policy.findMany({
+    where: { id: { in: policyIds }, clientId, deletedAt: null },
+    select: { id: true, policyNumber: true, premiumCollectionMode: true },
+  });
+
+  const directOnlyPolicy = policies.find((policy) => policy.premiumCollectionMode === 'DIRECT_TO_INSURER');
+  if (directOnlyPolicy) {
+    throw new Error(`Cannot record broker-collected payment against direct-to-insurer policy ${directOnlyPolicy.policyNumber}. Use the direct insurer payment workflow instead.`);
+  }
+
+  return policies.some((policy) => policy.premiumCollectionMode === 'MIXED') || requestedMode === 'MIXED'
+    ? 'MIXED'
+    : 'BROKER_COLLECTED';
 }
 
 async function applyAllocation(
@@ -224,16 +260,17 @@ async function applyAllocation(
       select: {
         id: true,
         policyNumber: true,
+        insurerId: true,
         paidAmount: true,
         outstandingAmount: true,
         status: true,
       },
     });
 
-    if (decimal(policy.outstandingAmount).lte(0) && ['DRAFT', 'PENDING_PAYMENT', 'PENDING_UNDERWRITING'].includes(policy.status)) {
+    if (decimal(policy.outstandingAmount).lte(0) && ['DRAFT', 'PENDING_PAYMENT'].includes(policy.status)) {
       await tx.policy.update({
         where: { id: policy.id },
-        data: { status: 'ACTIVE', underwritingStatus: 'APPROVED', outstandingAmount: new Decimal(0) },
+        data: { status: 'PENDING_UNDERWRITING', outstandingAmount: new Decimal(0), outstandingPremiumAmount: new Decimal(0) },
       });
     } else if (decimal(policy.outstandingAmount).gt(0) && policy.status === 'DRAFT') {
       await tx.policy.update({ where: { id: policy.id }, data: { status: 'PENDING_PAYMENT' } });
@@ -247,6 +284,21 @@ async function applyAllocation(
       { paymentId, amount: amount.toFixed(2), clientId },
       userId,
     );
+
+    if (decimal(policy.outstandingAmount).lte(0)) {
+      await ensureWorkflowTask(tx, {
+        title: 'Activate policy after payment readiness is complete',
+        description: `Payment is allocated for policy ${policy.policyNumber}. Review activation readiness, documents, commission, accounting, and underwriting details.`,
+        category: 'POLICY_ACTIVATION',
+        dueDate: new Date(Date.now() + 2 * 86400000),
+        clientId,
+        policyId: policy.id,
+        paymentId,
+        insurerId: policy.insurerId,
+        assignedToId: userId,
+        createdById: userId,
+      });
+    }
   }
 
   if (allocation.invoiceId) {
@@ -356,18 +408,19 @@ async function createReceiptForPayment(tx: Tx, paymentId: string, userId: string
   await tx.receipt.update({ where: { id: receipt.id }, data: { documentId: document.id } });
 }
 
-async function createPaymentJournalEntry(tx: Tx, paymentId: string, userId: string): Promise<void> {
+async function createPaymentJournalEntry(tx: Tx, paymentId: string, userId: string) {
   const payment = await tx.payment.findUniqueOrThrow({
     where: { id: paymentId },
     include: { allocations: true },
   });
   const accountCode = payment.method === 'MPESA' ? SYSTEM_ACCOUNTS.MPESA_TRUST : SYSTEM_ACCOUNTS.BANK_TRUST;
 
-  await postJournal(tx, {
+  const journal = await postJournal(tx, {
     event: 'BROKER_PREMIUM_RECEIVED',
     entryDate: payment.paymentDate,
     description: `Broker-collected premium ${payment.paymentNumber}`,
     reference: payment.transactionCode ?? payment.reference ?? payment.paymentNumber,
+    sourceKey: `broker-premium-received:${payment.id}`,
     source: {
       paymentId,
       clientId: payment.clientId,
@@ -379,6 +432,14 @@ async function createPaymentJournalEntry(tx: Tx, paymentId: string, userId: stri
       { accountCode: SYSTEM_ACCOUNTS.INSURER_PAYABLE, credit: payment.amount, description: 'Premium payable to insurer' },
     ],
   });
+
+  await tx.payment.update({ where: { id: paymentId }, data: { accountingPostedStatus: 'POSTED' } });
+  const policyIds = Array.from(new Set(payment.allocations.map((allocation) => allocation.policyId).filter(Boolean))) as string[];
+  if (policyIds.length) {
+    await tx.policy.updateMany({ where: { id: { in: policyIds } }, data: { accountingPostedStatus: 'POSTED' } });
+  }
+
+  return journal;
 }
 
 export async function recordBrokerPaymentInTransaction(
@@ -400,6 +461,7 @@ export async function recordBrokerPaymentInTransaction(
   }
 
   await assertAllocationTargets(tx, data.clientId, allocations);
+  const brokerPaymentMode = await resolveBrokerPaymentMode(tx, data.clientId, allocations, data.premiumCollectionMode);
 
   const paymentNumber = await generateSequentialNumber(tx, 'payment', 'paymentNumber', 'PAY');
   const payment = await tx.payment.create({
@@ -408,8 +470,8 @@ export async function recordBrokerPaymentInTransaction(
       clientId: data.clientId,
       amount: paymentAmount,
       currency: data.currency,
-      premiumCollectionMode: data.premiumCollectionMode ?? 'BROKER_COLLECTED',
-      premiumPaidTo: data.premiumCollectionMode === 'MIXED' ? 'BOTH' : 'BROKER',
+      premiumCollectionMode: brokerPaymentMode,
+      premiumPaidTo: brokerPaymentMode === 'MIXED' ? 'BOTH' : 'BROKER',
       method: data.method,
       reference: data.reference ?? null,
       transactionCode: data.transactionCode ?? null,
@@ -461,12 +523,7 @@ export async function recordBrokerPaymentInTransaction(
 
   await updatePaymentStatus(tx, payment.id);
   await createReceiptForPayment(tx, payment.id, userId);
-  await createPaymentJournalEntry(tx, payment.id, userId);
-  const journal = await tx.journalEntry.findFirst({
-    where: { paymentId: payment.id, postingEvent: 'BROKER_PREMIUM_RECEIVED' as any },
-    orderBy: { createdAt: 'desc' },
-    select: { id: true },
-  });
+  const journal = await createPaymentJournalEntry(tx, payment.id, userId);
   if (journal) {
     await createFinanceTransactionFromBrokerPayment(tx, payment.id, journal.id, userId);
   }
@@ -502,19 +559,29 @@ async function resolveCommissionForPolicy(tx: Tx, policyId: string) {
     orderBy: [{ agentId: 'desc' }, { productId: 'desc' }, { insurerId: 'desc' }, { effectiveFrom: 'desc' }],
   });
 
-  const rate = rule?.rate ?? policy.agent?.defaultCommissionRate ?? new Decimal(0);
+  const defaultSetting = await tx.setting.findUnique({
+    where: { key: 'commission.defaultAgencyCommissionRate' },
+    select: { value: true },
+  }).catch(() => null);
+  const defaultRate = defaultSetting?.value ? new Decimal(defaultSetting.value) : new Decimal('0.10');
+  const rate = rule?.rate ?? defaultRate;
   const grossCommission = decimal(policy.totalPremium).mul(rate).toDecimalPlaces(2);
   return { policy, rate, grossCommission };
 }
 
-async function recognizePolicyCommission(
+export async function recognizePolicyCommission(
   tx: Tx,
   policyId: string,
   source: 'BROKER_COLLECTED_PREMIUM' | 'DIRECT_TO_INSURER_PREMIUM',
   userId: string,
 ): Promise<string | null> {
   const existing = await tx.commissionEntry.findFirst({
-    where: { policyId, commissionSource: source, status: { notIn: ['CANCELLED', 'CLAWED_BACK'] } },
+    where: {
+      policyId,
+      agentId: null,
+      commissionSource: { in: ['BROKER_COLLECTED_PREMIUM', 'DIRECT_TO_INSURER_PREMIUM'] },
+      status: { notIn: ['CANCELLED', 'CLAWED_BACK'] },
+    },
     select: { id: true },
   });
   if (existing) return existing.id;
@@ -528,43 +595,63 @@ async function recognizePolicyCommission(
     return null;
   }
 
+  const deductedAtSource =
+    source === 'BROKER_COLLECTED_PREMIUM' && policy.commissionSettlementMode === 'DEDUCTED_AT_SOURCE';
+  const insurerCommissionStatus = deductedAtSource ? 'RECEIVED' : 'RECEIVABLE';
+  const commissionStatus = deductedAtSource ? 'DEDUCTED_AT_SOURCE' : 'RECEIVABLE';
+  const settlementDescription = deductedAtSource ? 'Commission deducted at source' : 'Commission receivable from insurer';
+
   await tx.policy.update({
     where: { id: policyId },
-    data: {
-      insurerCommissionStatus: 'RECEIVABLE',
-      commissionReceivableAmount: { increment: grossCommission },
-    },
+    data: deductedAtSource
+      ? {
+        insurerCommissionStatus,
+        commissionReceivedAmount: { increment: grossCommission },
+      }
+      : {
+        insurerCommissionStatus,
+        commissionReceivableAmount: { increment: grossCommission },
+      },
   });
 
-  await postJournal(tx, {
+  const journal = await postJournal(tx, {
     event: source === 'DIRECT_TO_INSURER_PREMIUM' ? 'DIRECT_INSURER_PAYMENT_VERIFIED' : 'COMMISSION_RECOGNIZED',
     entryDate: new Date(),
-    description: `Commission receivable recognized for policy ${policy.policyNumber}`,
+    description: `${settlementDescription} for policy ${policy.policyNumber}`,
     reference: policy.policyNumber,
+    sourceKey: `commission-recognized:${policyId}:${source}:${policy.commissionSettlementMode}`,
     source: { policyId, insurerId: policy.insurerId, clientId: policy.clientId, agentId: policy.agentId ?? undefined },
     userId,
-    lines: [
-      {
-        accountCode: SYSTEM_ACCOUNTS.COMMISSION_RECEIVABLE_INSURERS,
-        debit: grossCommission,
-        description: 'Commission receivable from insurer',
-      },
-      {
-        accountCode: SYSTEM_ACCOUNTS.COMMISSION_REVENUE,
-        credit: grossCommission,
-        description: 'Commission revenue recognized',
-      },
-    ],
+    lines: deductedAtSource
+      ? [
+        {
+          accountCode: SYSTEM_ACCOUNTS.INSURER_PAYABLE,
+          debit: grossCommission,
+          description: 'Reduce insurer payable by source-deducted commission',
+        },
+        {
+          accountCode: SYSTEM_ACCOUNTS.COMMISSION_REVENUE,
+          credit: grossCommission,
+          description: 'Commission revenue recognized',
+        },
+      ]
+      : [
+        {
+          accountCode: SYSTEM_ACCOUNTS.COMMISSION_RECEIVABLE_INSURERS,
+          debit: grossCommission,
+          description: 'Commission receivable from insurer',
+        },
+        {
+          accountCode: SYSTEM_ACCOUNTS.COMMISSION_REVENUE,
+          credit: grossCommission,
+          description: 'Commission revenue recognized',
+        },
+      ],
   });
 
-  if (!policy.agentId) return null;
-
-  const withholdingRate = policy.agent?.withholdingTaxRate ?? new Decimal(0);
-  const withholdingTax = grossCommission.mul(withholdingRate).toDecimalPlaces(2);
-  const netCommission = grossCommission.minus(withholdingTax);
-  const entry = await tx.commissionEntry.create({
+  const agencyEntry = await tx.commissionEntry.create({
     data: {
-      agentId: policy.agentId,
+      agentId: null,
       policyId: policy.id,
       insurerId: policy.insurerId,
       productId: policy.productId,
@@ -573,6 +660,66 @@ async function recognizePolicyCommission(
       commissionRate: rate,
       grossCommission,
       grossCommissionAmount: grossCommission,
+      withholdingTax: new Decimal(0),
+      withholdingTaxAmount: new Decimal(0),
+      netCommission: grossCommission,
+      netCommissionAmount: grossCommission,
+      commissionType: policy.renewedFromId ? 'RENEWAL' : 'FIRST_YEAR',
+      commissionSource: source,
+      paymentCollectionMode: source === 'DIRECT_TO_INSURER_PREMIUM' ? 'DIRECT_TO_INSURER' : policy.premiumCollectionMode,
+      settlementMode: policy.commissionSettlementMode,
+      insurerCommissionStatus,
+      commissionReceivableAmount: deductedAtSource ? new Decimal(0) : grossCommission,
+      commissionReceivedAmount: deductedAtSource ? grossCommission : new Decimal(0),
+      status: commissionStatus,
+      earnedDate: new Date(),
+      accountingPostedStatus: 'POSTED',
+      notes: deductedAtSource
+        ? 'Agency commission auto-calculated and deducted at source from insurer payable'
+        : 'Agency commission auto-calculated and recognized as insurer receivable',
+    },
+  });
+
+  if (journal.commissionEntryId !== agencyEntry.id) {
+    await tx.journalEntry.update({ where: { id: journal.id }, data: { commissionEntryId: agencyEntry.id } });
+  }
+  await tx.policy.update({ where: { id: policy.id }, data: { accountingPostedStatus: 'POSTED' } });
+
+  if (!deductedAtSource) {
+    await ensureWorkflowTask(tx, {
+      title: 'Follow up commission from insurer',
+      description: `Commission receivable of ${money(grossCommission)} has been recognized for policy ${policy.policyNumber}.`,
+      category: 'COMMISSION_RECEIVABLE',
+      dueDate: new Date(Date.now() + 14 * 86400000),
+      clientId: policy.clientId,
+      policyId: policy.id,
+      commissionEntryId: agencyEntry.id,
+      insurerId: policy.insurerId,
+      assignedToId: userId,
+      createdById: userId,
+    });
+  }
+
+  if (!policy.agentId) return agencyEntry.id;
+
+  const withholdingRate = policy.agent?.withholdingTaxRate ?? new Decimal(0);
+  const agentRate = policy.agent?.defaultCommissionRate ?? new Decimal(0);
+  if (agentRate.lte(0)) return agencyEntry.id;
+
+  const agentGrossCommission = decimal(policy.totalPremium).mul(agentRate).toDecimalPlaces(2);
+  const withholdingTax = agentGrossCommission.mul(withholdingRate).toDecimalPlaces(2);
+  const netCommission = agentGrossCommission.minus(withholdingTax);
+  await tx.commissionEntry.create({
+    data: {
+      agentId: policy.agentId,
+      policyId: policy.id,
+      insurerId: policy.insurerId,
+      productId: policy.productId,
+      premiumAmount: policy.totalPremium,
+      commissionBasis: policy.totalPremium,
+      commissionRate: agentRate,
+      grossCommission: agentGrossCommission,
+      grossCommissionAmount: agentGrossCommission,
       withholdingTax,
       withholdingTaxAmount: withholdingTax,
       netCommission,
@@ -581,15 +728,16 @@ async function recognizePolicyCommission(
       commissionSource: source,
       paymentCollectionMode: source === 'DIRECT_TO_INSURER_PREMIUM' ? 'DIRECT_TO_INSURER' : policy.premiumCollectionMode,
       settlementMode: policy.commissionSettlementMode,
-      insurerCommissionStatus: 'RECEIVABLE',
-      commissionReceivableAmount: grossCommission,
+      insurerCommissionStatus: 'NOT_DUE',
+      commissionReceivableAmount: new Decimal(0),
       status: 'CALCULATED',
       earnedDate: new Date(),
-      notes: 'Auto-calculated from policy premium collection event',
+      originalEntryId: agencyEntry.id,
+      notes: 'Agent commission payable candidate auto-calculated from policy premium collection event',
     },
   });
 
-  return entry.id;
+  return agencyEntry.id;
 }
 
 export async function listPayments(req: AuthRequest) {
@@ -649,6 +797,77 @@ export async function getPaymentById(id: string) {
   return payment;
 }
 
+type PaymentForReceiptArtifact = Prisma.PaymentGetPayload<{ include: typeof PAYMENT_INCLUDE }>;
+
+function needsReceiptRegeneration(fileUrl: string | null): boolean {
+  if (!fileUrl) return true;
+  if (/^https?:\/\//i.test(fileUrl)) return false;
+  return !fs.existsSync(fileUrl);
+}
+
+function buildReceiptTemplateDataForDownload(payment: PaymentForReceiptArtifact): ReceiptTemplateData {
+  const receipt = payment.receipt;
+  if (!receipt) {
+    throw new Error('Receipt not found');
+  }
+  const activeAllocations = payment.allocations.filter((allocation) => !allocation.reversedAt);
+  return {
+    receiptNumber: receipt.receiptNumber,
+    paymentNumber: payment.paymentNumber,
+    clientName: receipt.clientName,
+    clientAddress: receipt.clientAddress,
+    amount: money(payment.amount),
+    amountInWords: receipt.amountInWords,
+    particulars: receipt.particulars,
+    paymentMethod: payment.method,
+    reference: payment.transactionCode ?? payment.reference,
+    issuedAt: receipt.issuedAt,
+    allocations: activeAllocations.map((allocation) => ({
+      policyNumber: allocation.policy?.policyNumber,
+      invoiceNumber: allocation.invoice?.invoiceNumber,
+      amount: money(allocation.amount),
+    })),
+  };
+}
+
+/**
+ * Ensures a receipt PDF/HTML artifact exists (regenerates via Puppeteer when missing or local file gone).
+ */
+export async function ensureReceiptArtifactForDownload(paymentId: string): Promise<PaymentForReceiptArtifact> {
+  const payment = await getPaymentById(paymentId);
+  if (!payment.receipt) {
+    throw new Error('Receipt not found');
+  }
+  if (!needsReceiptRegeneration(payment.receipt.fileUrl)) {
+    return payment;
+  }
+
+  const template = buildReceiptTemplateDataForDownload(payment);
+  const artifact = await generateReceiptArtifact(template);
+
+  await prisma.receipt.update({
+    where: { id: payment.receipt.id },
+    data: {
+      fileUrl: artifact.fileUrl,
+      fileSize: artifact.fileSize,
+      mimeType: artifact.mimeType,
+    },
+  });
+
+  if (payment.receipt.documentId) {
+    await prisma.document.update({
+      where: { id: payment.receipt.documentId },
+      data: {
+        fileUrl: artifact.fileUrl,
+        fileSize: artifact.fileSize,
+        mimeType: artifact.mimeType,
+      },
+    });
+  }
+
+  return getPaymentById(paymentId);
+}
+
 export async function listDirectInsurerPayments(req: AuthRequest) {
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
@@ -679,7 +898,24 @@ export async function listDirectInsurerPayments(req: AuthRequest) {
     prisma.directInsurerPayment.count({ where }),
   ]);
 
-  return { payments, total, page, limit };
+  return { payments: await attachDirectPaymentDocuments(payments), total, page, limit };
+}
+
+async function attachDirectPaymentDocuments<T extends { proofOfPaymentDocumentId?: string | null; acknowledgementDocumentId?: string | null }>(
+  payments: T[],
+) {
+  const ids = Array.from(new Set(payments.flatMap((payment) => [
+    payment.proofOfPaymentDocumentId,
+    payment.acknowledgementDocumentId,
+  ]).filter(Boolean))) as string[];
+  if (!ids.length) return payments.map((payment) => ({ ...payment, proofOfPaymentDocument: null, acknowledgementDocument: null }));
+  const documents = await prisma.document.findMany({ where: { id: { in: ids }, deletedAt: null } });
+  const byId = new Map(documents.map((document) => [document.id, document]));
+  return payments.map((payment) => ({
+    ...payment,
+    proofOfPaymentDocument: payment.proofOfPaymentDocumentId ? byId.get(payment.proofOfPaymentDocumentId) ?? null : null,
+    acknowledgementDocument: payment.acknowledgementDocumentId ? byId.get(payment.acknowledgementDocumentId) ?? null : null,
+  }));
 }
 
 export async function getPaymentStats() {
@@ -710,7 +946,7 @@ export async function getPaymentStats() {
 
 export async function recordPayment(data: RecordPaymentInput, userId: string) {
   if (data.premiumCollectionMode === 'DIRECT_TO_INSURER') {
-    throw new Error('Use the direct-to-insurer payment workflow for premiums paid to insurers');
+    throw new Error('Cannot record direct-to-insurer premiums through the broker payment workflow. Use the direct insurer payment workflow instead.');
   }
 
   const paymentId = await prisma.$transaction((tx) => recordBrokerPaymentInTransaction(tx, data, userId), { timeout: 30000 });
@@ -733,12 +969,15 @@ async function applyVerifiedDirectInsurerPayment(tx: Tx, directPaymentId: string
   });
 
   const policy = directPayment.policy;
+  if (policy.premiumCollectionMode === 'BROKER_COLLECTED') {
+    throw new Error(`Cannot verify direct insurer payment for broker-collected policy ${policy.policyNumber}. Change the policy mode before payment activity exists, or use broker-collected payment.`);
+  }
   const amount = decimal(directPayment.amount);
   const nextDirect = decimal(policy.directToInsurerAmount).plus(amount);
   const nextBroker = decimal(policy.brokerCollectedAmount);
   const calculatedOutstanding = decimal(policy.totalPremium).minus(nextBroker).minus(nextDirect);
   const nextOutstanding = calculatedOutstanding.gt(0) ? calculatedOutstanding : new Decimal(0);
-  const nextMode = nextBroker.gt(0) ? 'MIXED' : 'DIRECT_TO_INSURER';
+  const nextMode = policy.premiumCollectionMode === 'MIXED' || nextBroker.gt(0) ? 'MIXED' : 'DIRECT_TO_INSURER';
 
   await tx.policy.update({
     where: { id: policy.id },
@@ -765,7 +1004,10 @@ async function applyVerifiedDirectInsurerPayment(tx: Tx, directPaymentId: string
 
   const commissionEntryId = await recognizePolicyCommission(tx, policy.id, 'DIRECT_TO_INSURER_PREMIUM', userId);
   if (commissionEntryId) {
-    await tx.directInsurerPayment.update({ where: { id: directPayment.id }, data: { commissionEntryId } });
+    await tx.directInsurerPayment.update({
+      where: { id: directPayment.id },
+      data: { commissionEntryId, accountingPostedStatus: 'POSTED' },
+    });
   }
 }
 
@@ -779,6 +1021,9 @@ export async function recordDirectInsurerPayment(data: RecordDirectInsurerPaymen
       },
     });
     if (!policy) throw new Error('Policy not found');
+    if (policy.premiumCollectionMode === 'BROKER_COLLECTED') {
+      throw new Error(`Cannot record direct insurer payment for broker-collected policy ${policy.policyNumber}. Use the broker payment workflow or change the policy collection mode before payment activity exists.`);
+    }
 
     const acknowledgementNumber = data.generateAcknowledgement ? await generateAcknowledgementNumber(tx) : null;
     const directPayment = await tx.directInsurerPayment.create({
@@ -800,6 +1045,35 @@ export async function recordDirectInsurerPayment(data: RecordDirectInsurerPaymen
         createdById: userId,
       },
     });
+
+    if (data.proofOfPaymentDocumentId) {
+      await tx.document.update({
+        where: { id: data.proofOfPaymentDocumentId },
+        data: {
+          entityType: 'DIRECT_INSURER_PAYMENT',
+          entityId: directPayment.id,
+          relatedEntityType: 'DIRECT_INSURER_PAYMENT',
+          relatedEntityId: directPayment.id,
+          sourceModule: 'payments',
+          documentType: 'PROOF_OF_PAYMENT',
+          type: 'PROOF_OF_PAYMENT',
+          category: 'PAYMENTS',
+          clientId: policy.clientId,
+          policyId: policy.id,
+          insurerId: policy.insurerId,
+          status: 'UPLOADED',
+        },
+      }).catch(() => null);
+      await tx.documentActivity.create({
+        data: {
+          documentId: data.proofOfPaymentDocumentId,
+          action: 'LINKED_TO_DIRECT_PAYMENT',
+          performedById: userId,
+          notes: `Linked proof to direct insurer payment ${directPayment.insurerReference}`,
+          metadata: { directInsurerPaymentId: directPayment.id, policyId: policy.id },
+        },
+      }).catch(() => null);
+    }
 
     if (acknowledgementNumber) {
       const artifact = await generatePaymentAcknowledgementArtifact({
@@ -848,15 +1122,30 @@ export async function recordDirectInsurerPayment(data: RecordDirectInsurerPaymen
 
     if (data.verificationStatus === 'VERIFIED') {
       await applyVerifiedDirectInsurerPayment(tx, directPayment.id, userId);
+    } else {
+      await ensureWorkflowTask(tx, {
+        title: 'Verify direct insurer payment',
+        description: `Verify insurer reference ${data.insurerReference} and proof before policy activation.`,
+        category: 'PAYMENT_VERIFICATION',
+        dueDate: new Date(Date.now() + 2 * 86400000),
+        clientId: policy.clientId,
+        policyId: policy.id,
+        paymentId: null,
+        insurerId: policy.insurerId,
+        assignedToId: userId,
+        createdById: userId,
+      });
     }
 
     return directPayment.id;
   }, { timeout: 30000 });
 
+  await sendDirectPaymentAcknowledgement(directPaymentId, userId);
+
   return prisma.directInsurerPayment.findUniqueOrThrow({
     where: { id: directPaymentId },
     include: { policy: true, client: true, insurer: true },
-  });
+  }).then(async (payment) => (await attachDirectPaymentDocuments([payment]))[0]);
 }
 
 export async function verifyDirectInsurerPayment(
@@ -905,7 +1194,7 @@ export async function verifyDirectInsurerPayment(
   return prisma.directInsurerPayment.findUniqueOrThrow({
     where: { id: directPaymentId },
     include: { policy: true, client: true, insurer: true },
-  });
+  }).then(async (payment) => (await attachDirectPaymentDocuments([payment]))[0]);
 }
 
 export async function allocatePayment(paymentId: string, data: AllocatePaymentInput, userId: string) {

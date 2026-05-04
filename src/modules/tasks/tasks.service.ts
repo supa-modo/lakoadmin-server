@@ -79,11 +79,26 @@ export async function listTasks(req: AuthRequest): Promise<ListTasksResult> {
       case 'client':
         where.clientId = entityId;
         break;
+      case 'onboarding':
+        where.onboardingCaseId = entityId;
+        break;
       case 'policy':
         where.policyId = entityId;
         break;
       case 'claim':
         where.claimId = entityId;
+        break;
+      case 'payment':
+        where.paymentId = entityId;
+        break;
+      case 'commission':
+        where.commissionEntryId = entityId;
+        break;
+      case 'insurer':
+        where.insurerId = entityId;
+        break;
+      case 'agent':
+        where.agentId = entityId;
         break;
     }
   }
@@ -134,6 +149,12 @@ export async function listTasks(req: AuthRequest): Promise<ListTasksResult> {
             companyName: true,
           },
         },
+        onboardingCase: { select: { id: true, caseNumber: true, status: true } },
+        policy: { select: { id: true, policyNumber: true, status: true } },
+        payment: { select: { id: true, paymentNumber: true, amount: true, status: true } },
+        commissionEntry: { select: { id: true, grossCommission: true, status: true } },
+        insurer: { select: { id: true, name: true, shortName: true } },
+        agent: { select: { id: true, agentNumber: true, firstName: true, lastName: true } },
       },
       skip,
       take: limit,
@@ -189,6 +210,12 @@ export async function getTaskById(id: string): Promise<Task> {
           companyName: true,
         },
       },
+      onboardingCase: { select: { id: true, caseNumber: true, status: true } },
+      policy: { select: { id: true, policyNumber: true, status: true } },
+      payment: { select: { id: true, paymentNumber: true, amount: true, status: true } },
+      commissionEntry: { select: { id: true, grossCommission: true, status: true } },
+      insurer: { select: { id: true, name: true, shortName: true } },
+      agent: { select: { id: true, agentNumber: true, firstName: true, lastName: true } },
     },
   });
 

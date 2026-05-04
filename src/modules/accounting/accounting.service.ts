@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
+import { Decimal } from '@prisma/client/runtime/client';
 import { prisma } from '../../config/database';
 import { AuthRequest } from '../../types/express';
 import { ensureChartOfAccounts, postJournal, SYSTEM_ACCOUNTS } from './postingEngine.service';
@@ -3144,7 +3144,7 @@ export async function recordCommissionReceipt(data: CommissionReceiptInput, user
 export async function getAgentPayables(req: AuthRequest) {
   const agentId = req.query.agentId as string | undefined;
   return prisma.commissionEntry.findMany({
-    where: { ...(agentId && { agentId }), status: { in: ['APPROVED', 'PAYABLE', 'HELD'] } },
+    where: { ...(agentId ? { agentId } : { agentId: { not: null } }), status: { in: ['APPROVED', 'PAYABLE', 'HELD'] } },
     include: { agent: true, policy: { include: { client: true } }, insurer: true },
     orderBy: { earnedDate: 'asc' },
   });
@@ -3152,7 +3152,7 @@ export async function getAgentPayables(req: AuthRequest) {
 
 export async function payAgentCommissions(data: AgentPaymentBatchInput, userId: string) {
   return prisma.$transaction(async (tx) => {
-    const entries = await tx.commissionEntry.findMany({ where: { id: { in: data.commissionEntryIds }, status: { in: ['APPROVED', 'PAYABLE'] } }, include: { agent: true } });
+    const entries = await tx.commissionEntry.findMany({ where: { id: { in: data.commissionEntryIds }, agentId: { not: null }, status: { in: ['APPROVED', 'PAYABLE'] } }, include: { agent: true } });
     if (entries.length !== data.commissionEntryIds.length) throw new Error('One or more commissions are not payable');
     const totalNet = entries.reduce((sum, entry) => sum.plus(entry.netCommission), new Decimal(0));
     const withholdingTax = entries.reduce((sum, entry) => sum.plus(entry.withholdingTax), new Decimal(0));
@@ -3171,6 +3171,7 @@ export async function payAgentCommissions(data: AgentPaymentBatchInput, userId: 
       ],
     });
     for (const entry of entries) {
+      if (!entry.agent) throw new Error('Agent commission entry is missing its agent');
       await createFinanceTransaction(tx, {
         type: 'AGENT_COMMISSION_PAYMENT',
         transactionDate: data.paidAt ? new Date(data.paidAt) : new Date(),
@@ -3240,8 +3241,8 @@ export async function getCommissionReceivablesAging() {
 }
 
 export async function getAgentPayablesAging() {
-  const entries = await prisma.commissionEntry.findMany({ where: { status: { in: ['APPROVED', 'PAYABLE', 'HELD'] } }, include: { agent: true } });
-  return agingRows(entries.map((e) => ({ name: e.agent.companyName ?? (`${e.agent.firstName ?? ''} ${e.agent.lastName ?? ''}`.trim() || e.agent.email), date: e.earnedDate, amount: e.netCommission })));
+  const entries = await prisma.commissionEntry.findMany({ where: { agentId: { not: null }, status: { in: ['APPROVED', 'PAYABLE', 'HELD'] } }, include: { agent: true } });
+  return agingRows(entries.filter((e) => !!e.agent).map((e) => ({ name: e.agent!.companyName ?? (`${e.agent!.firstName ?? ''} ${e.agent!.lastName ?? ''}`.trim() || e.agent!.email), date: e.earnedDate, amount: e.netCommission })));
 }
 
 function agingRows(rows: Array<{ name: string; date: Date; amount: Decimal }>) {

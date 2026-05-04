@@ -8,7 +8,7 @@ import {
   UpdateCommissionRuleInput,
 } from './commissions.validation';
 import { AuthRequest } from '../../types/express';
-import { Decimal } from '@prisma/client/runtime/library';
+import { Decimal } from '@prisma/client/runtime/client';
 import { postJournal, SYSTEM_ACCOUNTS } from '../accounting/postingEngine.service';
 
 function toDecimalOrNull(v: number | null | undefined): Decimal | null {
@@ -237,6 +237,7 @@ export async function approveCommissionEntry(id: string, userId: string, notes?:
   return prisma.$transaction(async (tx) => {
     const entry = await tx.commissionEntry.findUnique({ where: { id }, include: { policy: true } });
     if (!entry) throw new Error('Commission entry not found');
+    if (!entry.agentId) throw new Error('Agency commission entries cannot be approved as agent commission payables');
     if (!['CALCULATED', 'PENDING_APPROVAL', 'HELD'].includes(entry.status)) throw new Error(`Cannot approve commission from ${entry.status}`);
 
     const updated = await tx.commissionEntry.update({
@@ -248,6 +249,7 @@ export async function approveCommissionEntry(id: string, userId: string, notes?:
       event: 'AGENT_COMMISSION_APPROVED',
       description: `Agent commission approved for policy ${entry.policy.policyNumber}`,
       reference: entry.policy.policyNumber,
+      sourceKey: `agent-commission-approved:${id}`,
       source: { commissionEntryId: id, policyId: entry.policyId, agentId: entry.agentId, insurerId: entry.insurerId ?? undefined },
       userId,
       lines: [
@@ -271,6 +273,7 @@ export async function payCommissionEntry(id: string, data: CommissionPayInput, u
   return prisma.$transaction(async (tx) => {
     const entry = await tx.commissionEntry.findUnique({ where: { id }, include: { policy: true } });
     if (!entry) throw new Error('Commission entry not found');
+    if (!entry.agentId) throw new Error('Agency commission entries cannot be paid through the agent commission workflow');
     if (!['APPROVED', 'PAYABLE'].includes(entry.status)) throw new Error('Commission must be approved before payment');
 
     const bankAmount = entry.netCommission;
@@ -288,6 +291,7 @@ export async function payCommissionEntry(id: string, data: CommissionPayInput, u
       entryDate: data.paidAt ? new Date(data.paidAt) : new Date(),
       description: `Agent commission paid for policy ${entry.policy.policyNumber}`,
       reference: data.paymentReference,
+      sourceKey: `agent-commission-paid:${id}:${data.paymentReference}`,
       source: { commissionEntryId: id, policyId: entry.policyId, agentId: entry.agentId, insurerId: entry.insurerId ?? undefined },
       userId,
       lines,
@@ -386,11 +390,11 @@ export async function recordInsurerCommissionPayment(data: RecordInsurerCommissi
       const status = received.gte(entry.commissionReceivableAmount) ? 'RECEIVED' : 'PARTIALLY_RECEIVED';
       await tx.commissionEntry.update({
         where: { id: entry.id },
-        data: { commissionReceivedAmount: received, insurerCommissionStatus: status },
+        data: { commissionReceivedAmount: received, insurerCommissionStatus: status, status, accountingPostedStatus: 'POSTED' },
       });
       await tx.policy.update({
         where: { id: entry.policyId },
-        data: { commissionReceivedAmount: { increment: amount }, insurerCommissionStatus: status },
+        data: { commissionReceivedAmount: { increment: amount }, insurerCommissionStatus: status, accountingPostedStatus: 'POSTED' },
       });
     }
 
@@ -399,6 +403,7 @@ export async function recordInsurerCommissionPayment(data: RecordInsurerCommissi
       entryDate: new Date(data.receivedDate),
       description: 'Insurer commission payment received',
       reference: data.reference ?? receipt.receiptNumber,
+      sourceKey: `insurer-commission-received:${receipt.id}`,
       source: { insurerId: data.insurerId, commissionEntryId: data.commissionEntryId ?? undefined },
       userId,
       lines: [

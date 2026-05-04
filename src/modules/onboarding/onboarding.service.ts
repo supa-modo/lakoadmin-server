@@ -3,6 +3,7 @@ import { AuthRequest } from '../../types/express';
 import { OnboardingCase, OnboardingDocument, Prisma } from '@prisma/client';
 import { generatePolicyNumber } from '../policies/policyNumber.service';
 import { calculatePremium } from '../policies/premium.service';
+import { ensureWorkflowTask } from '../workflows/workflowTaskAutomation.service';
 
 interface ListOnboardingResult {
   cases: OnboardingCase[];
@@ -346,8 +347,7 @@ export async function createPolicyFromOnboardingCase(
       });
     }
 
-    const underwriterTask = data.createUnderwriterTask === false ? null : await tx.task.create({
-      data: {
+    const underwriterTask = data.createUnderwriterTask === false ? null : await ensureWorkflowTask(tx, {
         title: 'Follow up with underwriter to confirm policy issuance and collect official policy documents.',
         description: [
           `Client: ${clientName(onboardingCase.client)}`,
@@ -365,7 +365,7 @@ export async function createPolicyFromOnboardingCase(
         policyId: policy.id,
         assignedToId: createdById ?? null,
         createdById: createdById ?? null,
-      },
+        dedupeBy: ['title', 'category', 'policyId'],
     });
 
     await tx.policyEvent.create({

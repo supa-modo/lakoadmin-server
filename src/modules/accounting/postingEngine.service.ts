@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
+import { Decimal } from '@prisma/client/runtime/client';
 
 type Tx = Prisma.TransactionClient;
 

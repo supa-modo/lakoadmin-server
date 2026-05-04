@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticateToken } from '../../middleware/auth';
-import { requireAnyPermission, requirePermission } from '../../middleware/rbac';
+import { requirePermission } from '../../middleware/rbac';
 import { validate } from '../../middleware/validate';
 import {
   createPolicySchema,
@@ -44,6 +44,15 @@ import {
 } from './policies.controller';
 import { policyClaimsHandler } from '../claims/claims.controller';
 import { entityCommunicationsHandler } from '../communications/communications.controller';
+import {
+  calculatePolicyCommissionHandler,
+  policyAccountingSummaryHandler,
+  policyCommissionSummaryHandler,
+  policyFinancialSummaryHandler,
+  policyTimelineHandler,
+  recordPolicyDirectInsurerPaymentHandler,
+  recordPolicyPaymentHandler,
+} from '../workflows/workflows.controller';
 
 const router = Router();
 
@@ -51,17 +60,25 @@ router.use(authenticateToken);
 
 // ─── Policies CRUD ────────────────────────────────────────
 router.get('/stats', requirePermission('policies.read'), getPoliciesStats);
+router.get('/renewals/due', requirePermission('policies.read'), getRenewalsDueHandler);
 router.get('/', requirePermission('policies.read'), getPolicies);
 router.post('/', requirePermission('policies.create'), validate(createPolicySchema), createPolicyHandler);
 router.get('/:id', requirePermission('policies.read'), getPolicy);
 router.get('/:id/communications', requirePermission('communications.read'), entityCommunicationsHandler);
 router.get('/:id/claims', requirePermission('claims.read'), policyClaimsHandler);
 router.get('/:id/activation-readiness', requirePermission('policies.read'), getPolicyActivationReadinessHandler);
+router.get('/:id/financial-summary', requirePermission('policies.read'), policyFinancialSummaryHandler);
+router.get('/:id/timeline', requirePermission('policies.read'), policyTimelineHandler);
+router.get('/:id/commission-summary', requirePermission('commissions.read'), policyCommissionSummaryHandler);
+router.get('/:id/accounting-summary', requirePermission('accounting.read'), policyAccountingSummaryHandler);
 router.patch('/:id', requirePermission('policies.update'), validate(updatePolicySchema), updatePolicyHandler);
 router.delete('/:id', requirePermission('policies.delete'), deletePolicyHandler);
 
 // ─── Status Transitions ───────────────────────────────────
-router.post('/:id/activate', requireAnyPermission('policies.activate', 'policies.update'), activatePolicyHandler);
+router.post('/:id/activate', requirePermission('policies.activate'), activatePolicyHandler);
+router.post('/:id/record-payment', requirePermission('payments.create'), recordPolicyPaymentHandler);
+router.post('/:id/record-direct-insurer-payment', requirePermission('payments.record_direct_insurer_payment'), recordPolicyDirectInsurerPaymentHandler);
+router.post('/:id/calculate-commission', requirePermission('commissions.calculate'), calculatePolicyCommissionHandler);
 router.post('/:id/suspend', requirePermission('policies.update'), validate(suspendPolicySchema), suspendPolicyHandler);
 router.post('/:id/reinstate', requirePermission('policies.update'), reinstatePolicyHandler);
 router.post('/:id/cancel', requirePermission('policies.update'), validate(cancelPolicySchema), cancelPolicyHandler);
@@ -89,6 +106,5 @@ router.get('/:id/events', requirePermission('policies.read'), getEventsHandler);
 
 // ─── Renewals ─────────────────────────────────────────────
 router.post('/:id/renew', requirePermission('policies.create'), validate(createRenewalSchema), createRenewalHandler);
-router.get('/renewals/due', requirePermission('policies.read'), getRenewalsDueHandler);
 
 export default router;

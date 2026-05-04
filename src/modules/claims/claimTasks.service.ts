@@ -16,6 +16,7 @@ export async function createClaimTask(args: {
   claimId: string;
   clientId: string;
   policyId: string;
+  claimQueryId?: string | null;
   title: string;
   description?: string | null;
   assignedToId?: string | null;
@@ -29,6 +30,7 @@ export async function createClaimTask(args: {
       description: args.description,
       category: 'CLAIM',
       claimId: args.claimId,
+      claimQueryId: args.claimQueryId ?? undefined,
       clientId: args.clientId,
       policyId: args.policyId,
       assignedToId: args.assignedToId ?? undefined,
@@ -54,7 +56,7 @@ export async function createClaimTask(args: {
       type: 'TASK_CREATED',
       description: `Task created: ${task.title}`,
       userId: args.createdById ?? undefined,
-      metadata: { taskId: task.id, dueDate: args.dueDate?.toISOString() },
+      metadata: { taskId: task.id, claimQueryId: args.claimQueryId ?? null, dueDate: args.dueDate?.toISOString() },
     },
   });
 

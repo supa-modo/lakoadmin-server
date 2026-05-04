@@ -10,6 +10,7 @@ import {
 } from './policies.validation';
 import { generatePolicyNumber, generateEndorsementNumber } from './policyNumber.service';
 import { calculatePremium } from './premium.service';
+import { ensureWorkflowTask } from '../workflows/workflowTaskAutomation.service';
 
 function getClientFullName(client: any): string | null {
   if (!client) return null;
@@ -209,7 +210,10 @@ export async function getPolicyActivationReadiness(id: string) {
         include: { payment: { include: { receipt: true } } },
       },
       directInsurerPayments: { where: { deletedAt: null } },
-      commissionEntries: { where: { status: { notIn: ['CANCELLED', 'CLAWED_BACK'] } }, select: { id: true } },
+      commissionEntries: {
+        where: { status: { notIn: ['CANCELLED', 'CLAWED_BACK'] } },
+        select: { id: true, accountingPostedStatus: true },
+      },
     },
   });
 
@@ -235,6 +239,30 @@ export async function getPolicyActivationReadiness(id: string) {
   const directPaymentsHaveReferences = verifiedDirectPayments.every((payment) => !!payment.insurerReference);
   const directPaymentsHaveProof = verifiedDirectPayments.every((payment) => !!payment.proofOfPaymentDocumentId || !!payment.acknowledgementDocumentId);
   const hasCommissionReceivable = Number(policy.commissionReceivableAmount) > 0 || policy.commissionEntries.length > 0;
+  const hasCommissionAccounted = hasCommissionReceivable || Number(policy.commissionReceivedAmount) > 0;
+  const hasAccountingPosted =
+    policy.accountingPostedStatus === 'POSTED' ||
+    policy.commissionEntries.some((entry) => entry.accountingPostedStatus === 'POSTED') ||
+    verifiedDirectPayments.some((payment) => payment.accountingPostedStatus === 'POSTED');
+
+  const directPaymentIssues = [
+    !hasVerifiedDirectPayment ? 'record and verify a direct insurer payment' : null,
+    hasVerifiedDirectPayment && directVerifiedAmount < totalPremium
+      ? `verified direct payment total is KES ${directVerifiedAmount.toLocaleString('en-KE', { maximumFractionDigits: 0 })}, below total premium KES ${totalPremium.toLocaleString('en-KE', { maximumFractionDigits: 0 })}`
+      : null,
+    hasVerifiedDirectPayment && !directPaymentsHaveReferences ? 'add insurer reference to every verified direct payment' : null,
+    hasVerifiedDirectPayment && !directPaymentsHaveProof ? 'link proof of payment or acknowledgement to every verified direct payment' : null,
+    !hasCommissionAccounted ? 'calculate or confirm commission receivable' : null,
+  ].filter(Boolean);
+
+  const mixedPaymentIssues = [
+    brokerPaid <= 0 ? 'record the broker-collected portion' : null,
+    brokerPaid > 0 && !hasReceipt ? 'generate a broker receipt for the broker-collected portion' : null,
+    !hasVerifiedDirectPayment ? 'record and verify the direct-to-insurer portion' : null,
+    hasVerifiedDirectPayment && !directPaymentsHaveReferences ? 'add insurer reference to every verified direct payment' : null,
+    outstanding > 0 ? `clear outstanding premium of KES ${outstanding.toLocaleString('en-KE', { maximumFractionDigits: 0 })}` : null,
+    !hasCommissionAccounted ? 'calculate or confirm commission' : null,
+  ].filter(Boolean);
 
   const memberData = policy.onboardingCase?.memberData as any;
   const expectedMembers = Array.isArray(memberData?.members) ? memberData.members.length : 0;
@@ -266,7 +294,7 @@ export async function getPolicyActivationReadiness(id: string) {
       ? {
         key: 'broker_premium_paid',
         label: 'Broker-collected premium allocated',
-        passed: outstanding <= 0 || (totalPremium > 0 && brokerPaid >= totalPremium && hasReceipt),
+        passed: outstanding <= 0 && totalPremium > 0 && brokerPaid >= totalPremium && hasReceipt,
         message: outstanding <= 0 && hasReceipt
           ? 'Broker-collected premium is allocated and receipted.'
           : `Broker-collected premium needs allocation and receipt. Outstanding KES ${outstanding.toLocaleString('en-KE', { maximumFractionDigits: 0 })}.`,
@@ -276,21 +304,39 @@ export async function getPolicyActivationReadiness(id: string) {
         ? {
           key: 'direct_insurer_payment_verified',
           label: 'Direct insurer payment verified',
-          passed: hasVerifiedDirectPayment && directVerifiedAmount >= totalPremium && directPaymentsHaveReferences && directPaymentsHaveProof && hasCommissionReceivable,
-          message: hasVerifiedDirectPayment
-            ? 'Direct insurer payment is verified with insurer reference and acknowledgement/proof.'
-            : 'Record and verify the direct-to-insurer premium payment, then confirm commission receivable.',
+          passed: hasVerifiedDirectPayment && directVerifiedAmount >= totalPremium && directPaymentsHaveReferences && directPaymentsHaveProof && hasCommissionAccounted,
+          message: directPaymentIssues.length
+            ? directPaymentIssues.join('; ') + '.'
+            : 'Direct insurer payment is verified with insurer reference, proof/acknowledgement, and commission receivable.',
           severity: 'required',
         }
         : {
           key: 'mixed_premium_verified',
           label: 'Mixed premium allocation complete',
-          passed: brokerPaid > 0 && hasReceipt && hasVerifiedDirectPayment && outstanding <= 0 && directPaymentsHaveReferences && hasCommissionReceivable,
-          message: outstanding <= 0
-            ? 'Broker and direct-to-insurer portions are complete.'
-            : `Mixed payment is incomplete. Outstanding KES ${outstanding.toLocaleString('en-KE', { maximumFractionDigits: 0 })}.`,
+          passed: brokerPaid > 0 && hasReceipt && hasVerifiedDirectPayment && outstanding <= 0 && directPaymentsHaveReferences && hasCommissionAccounted,
+          message: mixedPaymentIssues.length
+            ? mixedPaymentIssues.join('; ') + '.'
+            : 'Broker and direct-to-insurer portions are complete.',
           severity: 'required',
         },
+    {
+      key: 'commission_accounted',
+      label: 'Commission calculated',
+      passed: hasCommissionAccounted,
+      message: hasCommissionAccounted
+        ? 'Commission has been calculated and linked to the policy.'
+        : 'Calculate commission before activation.',
+      severity: 'required',
+    },
+    {
+      key: 'accounting_posted',
+      label: 'Accounting posted',
+      passed: hasAccountingPosted,
+      message: hasAccountingPosted
+        ? 'Required financial posting is complete.'
+        : 'Post or resolve queued accounting events before activation.',
+      severity: 'required',
+    },
     {
       key: 'onboarding_approved',
       label: 'Onboarding approval complete',
@@ -385,7 +431,11 @@ export async function createPolicy(data: CreatePolicyInput, userId: string) {
       totalPremiumAmount: premiumBreakdown.totalPremium,
       outstandingPremiumAmount: premiumBreakdown.totalPremium,
       premiumCollectionMode: (data as any).premiumCollectionMode ?? 'BROKER_COLLECTED',
-      premiumPaidTo: (data as any).premiumCollectionMode === 'DIRECT_TO_INSURER' ? 'INSURER' : 'BROKER',
+      premiumPaidTo: (data as any).premiumCollectionMode === 'DIRECT_TO_INSURER'
+        ? 'INSURER'
+        : (data as any).premiumCollectionMode === 'MIXED'
+          ? 'BOTH'
+          : 'BROKER',
       paymentFrequency: data.paymentFrequency as any,
       notes: data.notes ?? null,
       status: 'DRAFT',
@@ -400,6 +450,21 @@ export async function createPolicy(data: CreatePolicyInput, userId: string) {
   });
 
   await logPolicyEvent(policy.id, 'CREATED', `Policy ${policyNumber} created`, { status: 'DRAFT' }, userId);
+  await prisma.task.create({
+    data: {
+      title: 'Follow up with underwriter for official policy number and schedule',
+      description: `Policy ${policyNumber} needs the insurer policy number and policy schedule/certificate before activation.`,
+      category: 'POLICY_UNDERWRITING',
+      dueDate: new Date(Date.now() + 3 * 86400000),
+      priority: 'NORMAL',
+      clientId: policy.clientId,
+      policyId: policy.id,
+      insurerId: policy.insurerId,
+      agentId: policy.agentId,
+      assignedToId: userId,
+      createdById: userId,
+    },
+  }).catch(() => null);
 
   return attachClientFullName(policy);
 }
@@ -410,6 +475,29 @@ export async function updatePolicy(id: string, data: UpdatePolicyInput, userId: 
 
   if (['CANCELLED', 'EXPIRED', 'RENEWED'].includes(existing.status)) {
     throw new Error(`Cannot update a policy with status ${existing.status}`);
+  }
+
+  const nextStart = data.startDate ? new Date(data.startDate) : existing.startDate;
+  const nextEnd = data.endDate ? new Date(data.endDate) : existing.endDate;
+  if (nextEnd <= nextStart) {
+    throw new Error('Cannot save policy because cover end date must be after cover start date');
+  }
+
+  const requestedCollectionMode = (data as any).premiumCollectionMode as string | undefined;
+  if (requestedCollectionMode && requestedCollectionMode !== existing.premiumCollectionMode) {
+    const [brokerAllocations, directPayments] = await Promise.all([
+      prisma.paymentAllocation.count({ where: { policyId: id, reversedAt: null } }),
+      prisma.directInsurerPayment.count({ where: { policyId: id, deletedAt: null } }),
+    ]);
+    const hasPaymentHistory =
+      brokerAllocations > 0 ||
+      directPayments > 0 ||
+      Number(existing.brokerCollectedAmount) > 0 ||
+      Number(existing.directToInsurerAmount) > 0 ||
+      Number(existing.paidAmount) > 0;
+    if (hasPaymentHistory) {
+      throw new Error('Cannot change premium collection mode after payment activity exists. Reverse or correct the payment record first.');
+    }
   }
 
   let premiumFields: any = {};
@@ -474,8 +562,7 @@ export async function activatePolicy(id: string, userId: string) {
 
   const readiness = await getPolicyActivationReadiness(id);
   if (!readiness.ready) {
-    await prisma.task.create({
-      data: {
+    await prisma.$transaction((tx) => ensureWorkflowTask(tx, {
         title: 'Complete policy activation requirements.',
         description: readiness.missingRequired.map((check) => `${check.label}: ${check.message}`).join('\n'),
         category: 'POLICY_ACTIVATION',
@@ -485,8 +572,8 @@ export async function activatePolicy(id: string, userId: string) {
         onboardingCaseId: policy.onboardingCaseId,
         assignedToId: userId,
         createdById: userId,
-      },
-    }).catch(() => null);
+        dedupeBy: ['title', 'category', 'policyId'],
+      })).catch(() => null);
 
     const missing = readiness.missingRequired.map((check) => check.label).join(', ');
     throw new Error(`Activation blocked. Complete these requirements first: ${missing}`);
