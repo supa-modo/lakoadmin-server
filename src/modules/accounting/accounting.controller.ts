@@ -212,12 +212,12 @@ export async function rejectExpenseHandler(req: AuthRequest, res: Response, next
 
 export async function payExpenseHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const expense = await service.payExpense(req.params.id, req.body, req.user!.id);
+    const payment = await service.payExpense(req.params.id, req.body, req.user!.id);
     if (req.body.overrideReason) {
-      audit(req, 'DUPLICATE_REFERENCE_WARNING_ACKNOWLEDGED', 'Expense', expense.id, { overrideReason: req.body.overrideReason });
+      audit(req, 'DUPLICATE_REFERENCE_WARNING_ACKNOWLEDGED', 'ExpensePayment', payment.id, { overrideReason: req.body.overrideReason });
     }
-    audit(req, 'PAY', 'Expense', expense.id, { status: expense.status });
-    sendSuccess(res, expense, 'Expense paid');
+    audit(req, 'CREATE', 'ExpensePayment', payment.id, { expenseId: req.params.id });
+    sendSuccess(res, payment, 'Expense payment recorded');
   } catch (error) { handleAccountingError(error, res, next); }
 }
 

@@ -23,6 +23,10 @@ function daysFrom(anchor: Date, days: number): Date {
   return new Date(anchor.getTime() + days * dayMs);
 }
 
+function monthDate(anchor: Date, monthOffset: number, day: number, hour = 10): Date {
+  return new Date(anchor.getFullYear(), anchor.getMonth() + monthOffset, day, hour, 0, 0, 0);
+}
+
 function money(value: number): string {
   return value.toFixed(2);
 }
@@ -223,6 +227,48 @@ async function upsertJournal(db: AnyPrisma, data: any, lines: Array<{ accountCod
     });
   }
   return entry;
+}
+
+async function upsertFinanceTransaction(db: AnyPrisma, data: any) {
+  const base = {
+    type: data.type,
+    status: data.status ?? 'POSTED',
+    transactionDate: data.transactionDate,
+    description: data.description,
+    reference: data.reference ?? null,
+    amount: money(Number(data.amount)),
+    currency: data.currency ?? 'KES',
+    direction: data.direction,
+    bankAccountId: data.bankAccountId ?? null,
+    mpesaAccountId: data.mpesaAccountId ?? null,
+    journalEntryId: data.journalEntryId ?? null,
+    paymentId: data.paymentId ?? null,
+    directInsurerPaymentId: data.directInsurerPaymentId ?? null,
+    commissionEntryId: data.commissionEntryId ?? null,
+    insurerCommissionReceiptId: data.insurerCommissionReceiptId ?? null,
+    remittanceId: data.remittanceId ?? null,
+    expenseId: data.expenseId ?? null,
+    agentId: data.agentId ?? null,
+    insurerId: data.insurerId ?? null,
+    clientId: data.clientId ?? null,
+    policyId: data.policyId ?? null,
+    reconciliationStatus: data.reconciliationStatus ?? 'UNMATCHED',
+    reconciledAt: data.reconciledAt ?? null,
+    reconciledById: data.reconciledById ?? null,
+    documentId: data.documentId ?? null,
+    notes: data.notes ?? SEED_TAG,
+    createdById: data.createdById ?? null,
+  };
+
+  return db.financeTransaction.upsert({
+    where: { transactionNumber: data.transactionNumber },
+    update: base,
+    create: {
+      id: data.id,
+      transactionNumber: data.transactionNumber,
+      ...base,
+    },
+  });
 }
 
 export async function seedRealisticSampleData(prisma: PrismaClient): Promise<void> {
@@ -3369,6 +3415,226 @@ export async function seedRealisticSampleData(prisma: PrismaClient): Promise<voi
     { accountCode: '5100', debit: 44544, description: 'Operations and client service expense' },
     { accountCode: '1000', credit: 44544, description: 'Operating bank payment' },
   ]);
+
+  console.log('Seeding finance dashboard cash-flow scenarios and categorized expenses...');
+  const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const operatingExpenseLedgerId = (await db.ledgerAccount.findUniqueOrThrow({ where: { code: '5100' } })).id;
+  const dashboardCategories = [
+    ['expense-category-rent-utilities', 'Rent and Utilities', 'RENT_UTIL', 'Office rent, electricity, water, internet, and security overheads'],
+    ['expense-category-tech-systems', 'Technology and Systems', 'TECH_SYS', 'Core software, cloud hosting, security tools, and automation platforms'],
+    ['expense-category-marketing-bd', 'Marketing and Business Development', 'MKT_BD', 'Campaigns, events, branded material, and client acquisition activity'],
+    ['expense-category-travel-client-visits', 'Travel and Client Visits', 'TRAVEL', 'Client visits, insurer meetings, field fuel, parking, and local transport'],
+    ['expense-category-compliance-licensing', 'Compliance and Licensing', 'COMPLIANCE', 'IRA, data protection, statutory filings, and compliance renewals'],
+    ['expense-category-professional-services', 'Professional Services', 'PRO_SERV', 'Legal, audit, tax, advisory, and specialist consulting fees'],
+    ['expense-category-staff-welfare-training', 'Staff Welfare and Training', 'STAFF_WEL', 'Team welfare, training, workshops, and internal enablement'],
+    ['expense-category-claims-support', 'Claims Support Operations', 'CLAIMS_OPS', 'Claims assessment coordination, document handling, and site support costs'],
+  ] as const;
+  const categoryByName = new Map<string, any>([['Operations and Client Service', expenseCategory]]);
+  for (const [idKey, name, code, description] of dashboardCategories) {
+    const category = await db.expenseCategory.upsert({
+      where: { name },
+      update: {
+        code,
+        ledgerAccountId: operatingExpenseLedgerId,
+        description: `${SEED_TAG} ${description}`,
+        isActive: true,
+      },
+      create: {
+        id: sampleId(idKey),
+        name,
+        code,
+        ledgerAccountId: operatingExpenseLedgerId,
+        description: `${SEED_TAG} ${description}`,
+        isActive: true,
+      },
+    });
+    categoryByName.set(name, category);
+  }
+
+  const dashboardVendors = [
+    ['vendor-lako-properties', 'Lako Properties Ltd', 'FACILITIES', 'accounts@lakoproperties.example', '+254700555201'],
+    ['vendor-safaricloud-tech', 'SafariCloud Technologies', 'TECHNOLOGY', 'billing@safaricloud.example', '+254700555202'],
+    ['vendor-brandforge-africa', 'BrandForge Africa Ltd', 'MARKETING', 'finance@brandforge.example', '+254700555203'],
+    ['vendor-nairobi-cabs', 'Nairobi Corporate Cabs', 'TRANSPORT', 'billing@nairobicabs.example', '+254700555204'],
+    ['vendor-kaplan-compliance', 'Kaplan Compliance Advisors', 'PROFESSIONAL_SERVICES', 'billing@kaplancompliance.example', '+254700555205'],
+    ['vendor-afya-training', 'Afya Training Institute', 'TRAINING', 'accounts@afyatraining.example', '+254700555206'],
+    ['vendor-claimassist', 'ClaimAssist Assessors Ltd', 'CLAIMS_SUPPORT', 'finance@claimassist.example', '+254700555207'],
+  ] as const;
+  const vendorByKey = new Map<string, any>([['vendor-corporate-print', vendor]]);
+  for (const [idKey, name, vendorType, email, phone] of dashboardVendors) {
+    const row = await db.vendor.upsert({
+      where: { id: sampleId(idKey) },
+      update: {
+        name,
+        vendorType,
+        contactPerson: 'Accounts Desk',
+        email,
+        phone,
+        paymentTerms: '14 days',
+        status: 'ACTIVE',
+        isActive: true,
+        notes: SEED_TAG,
+      },
+      create: {
+        id: sampleId(idKey),
+        name,
+        vendorType,
+        contactPerson: 'Accounts Desk',
+        email,
+        phone,
+        paymentTerms: '14 days',
+        status: 'ACTIVE',
+        isActive: true,
+        notes: SEED_TAG,
+      },
+    });
+    vendorByKey.set(idKey, row);
+  }
+
+  const currentMonthExpenseScenarios = [
+    ['office-rent-utilities', 'EXPENSE-RENT', 'Rent and Utilities', 'vendor-lako-properties', 'Office rent, power backup, internet, and security service charge', 186000, 0, 'PAID', 2, 'BANK_TRANSFER', 'KCB-RENT-5102'],
+    ['crm-cloud-subscriptions', 'EXPENSE-TECH', 'Technology and Systems', 'vendor-safaricloud-tech', 'CRM hosting, email delivery, backups, and monitoring subscriptions', 74500, 11920, 'PAID', 3, 'BANK_TRANSFER', 'KCB-TECH-5103'],
+    ['q2-lead-campaign', 'EXPENSE-MKT', 'Marketing and Business Development', 'vendor-brandforge-africa', 'Q2 commercial motor and medical insurance lead campaign', 128500, 20560, 'APPROVED', 4, 'BANK_TRANSFER', null],
+    ['client-field-visits', 'EXPENSE-TRAVEL', 'Travel and Client Visits', 'vendor-nairobi-cabs', 'Client and insurer field visits for renewal meetings and policy delivery', 46200, 0, 'PAID', 4, 'MPESA', 'MPESA-TRVL-5104'],
+    ['ira-compliance-renewal', 'EXPENSE-COMP', 'Compliance and Licensing', 'vendor-kaplan-compliance', 'IRA filing support, data protection review, and compliance renewals', 63500, 10160, 'APPROVED', 5, 'BANK_TRANSFER', null],
+    ['audit-tax-advisory', 'EXPENSE-PRO', 'Professional Services', 'vendor-kaplan-compliance', 'Monthly audit readiness, tax advisory, and finance controls review', 94000, 15040, 'PAID', 5, 'BANK_TRANSFER', 'KCB-PRO-5105'],
+    ['staff-cpd-workshop', 'EXPENSE-STAFF', 'Staff Welfare and Training', 'vendor-afya-training', 'Claims, product suitability, and client-service CPD workshop', 28000, 4480, 'PAID', 6, 'MPESA', 'MPESA-CPD-5106'],
+    ['claims-assessment-logistics', 'EXPENSE-CLAIMS', 'Claims Support Operations', 'vendor-claimassist', 'Motor claim site inspection coordination and document dispatch', 31500, 5040, 'PAID', 6, 'BANK_TRANSFER', 'KCB-CLM-5106'],
+    ['print-dispatch-topup', 'EXPENSE-OPS-TOPUP', 'Operations and Client Service', 'vendor-corporate-print', 'Additional policy binders, courier dispatch, and certificates for new business', 22400, 3584, 'SUBMITTED', 6, 'BANK_TRANSFER', null],
+    ['client-seminar-float', 'EXPENSE-MKT-SUB', 'Marketing and Business Development', 'vendor-brandforge-africa', 'Venue deposit for upcoming SME risk advisory breakfast', 52000, 8320, 'SUBMITTED', 6, 'BANK_TRANSFER', null],
+    ['adjuster-retainer', 'EXPENSE-CLAIMS-SUB', 'Claims Support Operations', 'vendor-claimassist', 'Retainer request for urgent loss-adjuster standby support', 37500, 6000, 'SUBMITTED', 6, 'BANK_TRANSFER', null],
+  ] as const;
+
+  for (const [expenseIndex, scenario] of currentMonthExpenseScenarios.entries()) {
+    const [key, numberSuffix, categoryName, vendorKey, description, amountValue, taxValue, status, day, paymentMethod, paymentReference] = scenario;
+    const total = Number(amountValue) + Number(taxValue);
+    const isPaid = status === 'PAID';
+    const isApproved = status === 'APPROVED' || isPaid;
+    const expenseRow = await db.expense.upsert({
+      where: { id: sampleId(`dashboard-expense-${currentPeriod}-${key}`) },
+      update: {
+        expenseNumber: `EXP-REAL-${currentPeriod}-${numberSuffix}`,
+        vendorId: vendorByKey.get(vendorKey)?.id ?? null,
+        categoryId: categoryByName.get(categoryName)?.id,
+        expenseDate: monthDate(now, 0, Number(day), 11),
+        dueDate: monthDate(now, 0, Math.min(Number(day) + 10, 27), 11),
+        description,
+        amount: money(Number(amountValue)),
+        taxAmount: money(Number(taxValue)),
+        totalAmount: money(total),
+        currency: 'KES',
+        status,
+        bankAccountId: paymentMethod === 'BANK_TRANSFER' && isPaid ? operatingAccount.id : null,
+        mpesaAccountId: paymentMethod === 'MPESA' && isPaid ? mpesaTrust.id : null,
+        paymentMethod: isPaid ? paymentMethod : null,
+        paymentReference: isPaid ? paymentReference : null,
+        paidAt: isPaid ? monthDate(now, 0, Number(day), 15) : null,
+        paidById: isPaid ? financeUser.id : null,
+        submittedAt: monthDate(now, 0, Math.max(1, Number(day) - 2), 9),
+        submittedById: relationshipUser.id,
+        approvedAt: isApproved ? monthDate(now, 0, Math.max(1, Number(day) - 1), 13) : null,
+        approvedById: isApproved ? financeUser.id : null,
+        notes: `${SEED_TAG} finance dashboard expense category scenario`,
+        createdById: relationshipUser.id,
+      },
+      create: {
+        id: sampleId(`dashboard-expense-${currentPeriod}-${key}`),
+        expenseNumber: `EXP-REAL-${currentPeriod}-${numberSuffix}`,
+        vendorId: vendorByKey.get(vendorKey)?.id ?? null,
+        categoryId: categoryByName.get(categoryName)?.id,
+        expenseDate: monthDate(now, 0, Number(day), 11),
+        dueDate: monthDate(now, 0, Math.min(Number(day) + 10, 27), 11),
+        description,
+        amount: money(Number(amountValue)),
+        taxAmount: money(Number(taxValue)),
+        totalAmount: money(total),
+        currency: 'KES',
+        status,
+        bankAccountId: paymentMethod === 'BANK_TRANSFER' && isPaid ? operatingAccount.id : null,
+        mpesaAccountId: paymentMethod === 'MPESA' && isPaid ? mpesaTrust.id : null,
+        paymentMethod: isPaid ? paymentMethod : null,
+        paymentReference: isPaid ? paymentReference : null,
+        paidAt: isPaid ? monthDate(now, 0, Number(day), 15) : null,
+        paidById: isPaid ? financeUser.id : null,
+        submittedAt: monthDate(now, 0, Math.max(1, Number(day) - 2), 9),
+        submittedById: relationshipUser.id,
+        approvedAt: isApproved ? monthDate(now, 0, Math.max(1, Number(day) - 1), 13) : null,
+        approvedById: isApproved ? financeUser.id : null,
+        notes: `${SEED_TAG} finance dashboard expense category scenario`,
+        createdById: relationshipUser.id,
+      },
+    });
+
+    if (isPaid) {
+      await upsertFinanceTransaction(db, {
+        id: sampleId(`dashboard-ft-expense-${currentPeriod}-${key}`),
+        transactionNumber: `FT-DASH-EXP-${currentPeriod}-${String(expenseIndex + 1).padStart(3, '0')}`,
+        type: 'EXPENSE_PAYMENT',
+        transactionDate: monthDate(now, 0, Number(day), 15),
+        description: `Expense payment: ${description}`,
+        reference: paymentReference,
+        amount: total,
+        direction: 'OUTFLOW',
+        bankAccountId: paymentMethod === 'BANK_TRANSFER' ? operatingAccount.id : null,
+        mpesaAccountId: paymentMethod === 'MPESA' ? mpesaTrust.id : null,
+        expenseId: expenseRow.id,
+        reconciliationStatus: 'MATCHED',
+        reconciledAt: monthDate(now, 0, Number(day), 16),
+        reconciledById: financeUser.id,
+        createdById: financeUser.id,
+        notes: `${SEED_TAG} categorized expense cash outflow`,
+      });
+    }
+  }
+
+  const cashFlowScenarios = [
+    [-5, 4, 'BROKER_PREMIUM_PAYMENT', 'INFLOW', 742000, 'Portfolio premium collections - December renewals', trustAccount.id, null, 'TRUST-DEC-001'],
+    [-5, 12, 'INSURER_COMMISSION_RECEIPT', 'INFLOW', 118600, 'Commission receipt from prior month insurer bordereau', operatingAccount.id, null, 'COMM-DEC-1186'],
+    [-5, 18, 'INSURER_REMITTANCE', 'OUTFLOW', 586000, 'Net insurer remittance for December batch', trustAccount.id, null, 'REM-DEC-5860'],
+    [-5, 24, 'AGENT_COMMISSION_PAYMENT', 'OUTFLOW', 45600, 'Agent commission payout for December closed business', operatingAccount.id, null, 'AGT-DEC-456'],
+    [-4, 5, 'BROKER_PREMIUM_PAYMENT', 'INFLOW', 835500, 'January broker premium deposits across SME and motor lines', null, mpesaTrust.id, 'MPESA-JAN-8355'],
+    [-4, 14, 'INSURER_COMMISSION_RECEIPT', 'INFLOW', 142400, 'January commission receipt from insurers', operatingAccount.id, null, 'COMM-JAN-1424'],
+    [-4, 20, 'EXPENSE_PAYMENT', 'OUTFLOW', 86500, 'January operating expense payment batch', operatingAccount.id, null, 'OPEX-JAN-865'],
+    [-4, 25, 'BANK_CHARGE', 'OUTFLOW', 2450, 'January bank and RTGS charges', operatingAccount.id, null, 'CHG-JAN-245'],
+    [-3, 3, 'BROKER_PREMIUM_PAYMENT', 'INFLOW', 916300, 'February premium collections for corporate renewals', trustAccount.id, null, 'TRUST-FEB-9163'],
+    [-3, 11, 'OTHER_INFLOW', 'INFLOW', 38400, 'Training facilitation recovery from partner insurer', operatingAccount.id, null, 'REC-FEB-384'],
+    [-3, 17, 'INSURER_REMITTANCE', 'OUTFLOW', 678200, 'February insurer remittance settlement', trustAccount.id, null, 'REM-FEB-6782'],
+    [-3, 23, 'MPESA_CHARGE', 'OUTFLOW', 1850, 'February M-Pesa collection charges', null, mpesaTrust.id, 'MPESA-FEB-185'],
+    [-2, 6, 'BROKER_PREMIUM_PAYMENT', 'INFLOW', 1052800, 'March premium receipts from fleet and WIBA placements', trustAccount.id, null, 'TRUST-MAR-10528'],
+    [-2, 12, 'INSURER_COMMISSION_RECEIPT', 'INFLOW', 166900, 'March insurer commission transfer', operatingAccount.id, null, 'COMM-MAR-1669'],
+    [-2, 19, 'AGENT_COMMISSION_PAYMENT', 'OUTFLOW', 73500, 'March agent commission payout run', operatingAccount.id, null, 'AGT-MAR-735'],
+    [-2, 27, 'OTHER_OUTFLOW', 'OUTFLOW', 42000, 'Client refund and overpayment correction', operatingAccount.id, null, 'REF-MAR-420'],
+    [-1, 4, 'BROKER_PREMIUM_PAYMENT', 'INFLOW', 1286000, 'April premium collections from medical and motor schemes', null, mpesaTrust.id, 'MPESA-APR-12860'],
+    [-1, 10, 'INSURER_COMMISSION_RECEIPT', 'INFLOW', 214300, 'April commission receipt after bordereau reconciliation', operatingAccount.id, null, 'COMM-APR-2143'],
+    [-1, 16, 'INSURER_REMITTANCE', 'OUTFLOW', 932500, 'April remittance to underwriters', trustAccount.id, null, 'REM-APR-9325'],
+    [-1, 21, 'EXPENSE_PAYMENT', 'OUTFLOW', 112400, 'April payroll support and operating expense batch', operatingAccount.id, null, 'OPEX-APR-1124'],
+    [0, 2, 'BROKER_PREMIUM_PAYMENT', 'INFLOW', 644800, 'Current month premium collections through trust channels', trustAccount.id, null, 'TRUST-CUR-6448'],
+    [0, 3, 'INSURER_COMMISSION_RECEIPT', 'INFLOW', 186700, 'Current month commission receipts available for operations', operatingAccount.id, null, 'COMM-CUR-1867'],
+    [0, 5, 'OTHER_INFLOW', 'INFLOW', 27500, 'Document and advisory fee recovery', operatingAccount.id, null, 'REC-CUR-275'],
+    [0, 6, 'INSURER_REMITTANCE', 'OUTFLOW', 488900, 'Current month approved insurer remittance payment', trustAccount.id, null, 'REM-CUR-4889'],
+    [0, 6, 'BANK_CHARGE', 'OUTFLOW', 3250, 'Current month bank service charges', operatingAccount.id, null, 'CHG-CUR-325'],
+  ] as const;
+
+  for (const [idx, scenario] of cashFlowScenarios.entries()) {
+    const [monthOffset, day, type, direction, amountValue, description, bankAccountId, mpesaAccountId, reference] = scenario;
+    await upsertFinanceTransaction(db, {
+      id: sampleId(`dashboard-cash-flow-${currentPeriod}-${idx + 1}`),
+      transactionNumber: `FT-DASH-CF-${currentPeriod}-${String(idx + 1).padStart(3, '0')}`,
+      type,
+      transactionDate: monthDate(now, Number(monthOffset), Number(day), 12),
+      description,
+      reference,
+      amount: Number(amountValue),
+      direction,
+      bankAccountId,
+      mpesaAccountId,
+      reconciliationStatus: ['BANK_CHARGE', 'MPESA_CHARGE', 'INSURER_REMITTANCE', 'INSURER_COMMISSION_RECEIPT'].includes(String(type)) ? 'MATCHED' : 'UNMATCHED',
+      reconciledAt: ['BANK_CHARGE', 'MPESA_CHARGE', 'INSURER_REMITTANCE', 'INSURER_COMMISSION_RECEIPT'].includes(String(type)) ? monthDate(now, Number(monthOffset), Math.min(Number(day) + 1, 27), 10) : null,
+      reconciledById: ['BANK_CHARGE', 'MPESA_CHARGE', 'INSURER_REMITTANCE', 'INSURER_COMMISSION_RECEIPT'].includes(String(type)) ? financeUser.id : null,
+      createdById: financeUser.id,
+      notes: `${SEED_TAG} finance dashboard cash-flow scenario`,
+    });
+  }
 
   const statement = await db.statementUpload.upsert({
     where: { id: sampleId('statement-trust-april') },

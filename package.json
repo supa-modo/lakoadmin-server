@@ -10,6 +10,7 @@
     "type-check": "tsc --noEmit",
     "test:claims": "ts-node src/modules/claims/claims.edge-cases.test.ts",
     "test:workflows": "ts-node src/tests/workflow.integration.test.ts",
+    "test:agent-commission": "ts-node src/modules/agent-commission/agentCommission.service.test.ts",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",

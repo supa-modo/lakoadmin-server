@@ -383,6 +383,26 @@ enum CommissionStatus {
   CLAWED_BACK
 }
 
+enum CommissionQuoteStatus {
+  DRAFT
+  PENDING_STATEMENT
+  STATEMENT_RECEIVED
+  RECONCILED
+  INVOICED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+  WRITTEN_OFF
+}
+
+enum ExtractionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  REVIEWED
+}
+
 enum AccountingPostedStatus {
   NOT_POSTED
   QUEUED
@@ -452,9 +472,12 @@ enum JournalEntryStatus {
 
 enum ReconciliationStatus {
   UPLOADED
+  EXTRACTED
+  PENDING_REVIEW
   IN_PROGRESS
   COMPLETED
   REVIEWED
+  FAILED_EXTRACTION
 }
 
 enum MatchStatus {
@@ -627,6 +650,8 @@ enum ExpenseStatus {
   SUBMITTED
   APPROVED
   REJECTED
+  PENDING_PAYMENT
+  PARTIALLY_PAID
   PAID
   VOIDED
 }
@@ -645,6 +670,66 @@ enum RemittanceLineStatus {
   REMITTED
   PARTIALLY_REMITTED
   REVERSED
+}
+
+enum LeadProposalStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CONVERTED
+}
+
+enum AgentCommissionAppliesTo {
+  ALL_AGENTS
+  SPECIFIC_AGENT
+  PRODUCT
+  INSURER
+  POLICY_TYPE
+}
+
+enum AgentCommissionCalcType {
+  FIXED_AMOUNT
+  PERCENTAGE_OF_PREMIUM
+  MANUAL_AMOUNT
+  TIERED
+}
+
+enum AgentCommissionStatus {
+  PENDING
+  APPROVED
+  PAYABLE
+  PAID
+  CANCELLED
+  REVERSED
+}
+
+enum AgentCommissionSourceType {
+  POLICY_ACTIVATION
+  PREMIUM_PAYMENT
+  MANUAL_ADJUSTMENT
+  RENEWAL
+  REVERSAL
+}
+
+enum AgentCommissionRuleStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum LeadCommunicationType {
+  CALL
+  SMS
+  EMAIL
+  WHATSAPP
+  MEETING
+  NOTE
+}
+
+enum CommunicationDirection {
+  INBOUND
+  OUTBOUND
 }
 
 // ─────────────────────────────────────────────────────────
@@ -680,8 +765,9 @@ model User {
 
   // Audit relations (as actor)
   auditLogs      AuditLog[]
-  createdLeads   Lead[]         @relation("LeadCreator")
-  assignedLeads  Lead[]         @relation("LeadAssignment")
+  createdLeads          Lead[]              @relation("LeadCreator")
+  assignedLeads         Lead[]              @relation("LeadAssignment")
+  leadCommunications    LeadCommunication[] @relation("LeadCommunicationAuthor")
   managedClients Client[]       @relation("ClientManager")
   ownedClaims    Claim[]        @relation("ClaimOwner")
   assignedTasks  Task[]         @relation("TaskAssignment")
@@ -689,6 +775,7 @@ model User {
   taskActivities TaskActivity[]
   leadActivities LeadActivity[]
   notifications  Notification[]
+  assignedCommissionQuotes CommissionQuote[]      @relation("AssignedAccountant")
   createdMessageTemplates MessageTemplate[]         @relation("MessageTemplateCreator")
   updatedMessageTemplates MessageTemplate[]         @relation("MessageTemplateUpdater")
   createdMessageLogs      MessageLog[]              @relation("MessageLogCreator")
@@ -823,6 +910,12 @@ model Lead {
   assignedToId String?
   assignedTo   User?   @relation("LeadAssignment", fields: [assignedToId], references: [id], onDelete: SetNull)
 
+  agentId          String?
+  agent            Agent?    @relation("AgentLeads", fields: [agentId], references: [id], onDelete: SetNull)
+  assignedByUserId String?
+  assignedAt       DateTime?
+  stage            String?
+
   convertedToClientId String?   @unique
   convertedToClient   Client?   @relation(fields: [convertedToClientId], references: [id])
   convertedAt         DateTime?
@@ -833,10 +926,19 @@ model Lead {
   notes        String?
   nextFollowUp DateTime?
 
+  proposalStatus     String?
+  proposalDocumentId String?
+  proposalSentAt     DateTime?
+  proposalNotes      String?
+
   activities      LeadActivity[]
+  dependents      LeadDependent[]
+  communications  LeadCommunication[]
+  proposals       LeadProposal[]
   tasks           Task[]           @relation("LeadTasks")
   onboardingCases OnboardingCase[] @relation("LeadOnboardingCases")
   sourcedPolicies Policy[]         @relation("LeadSourcedPolicies")
+  agentCommissions AgentCommission[]
 
   createdById String?
   createdBy   User?   @relation("LeadCreator", fields: [createdById], references: [id], onDelete: SetNull)
@@ -847,6 +949,7 @@ model Lead {
 
   @@index([status])
   @@index([assignedToId])
+  @@index([agentId])
   @@index([source])
   @@index([createdAt])
   @@map("leads")
@@ -871,6 +974,101 @@ model LeadActivity {
   @@index([createdAt])
   @@index([userId])
   @@map("lead_activities")
+}
+
+model LeadDependent {
+  id String @id @default(uuid())
+
+  leadId String
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  firstName      String
+  lastName       String?
+  dateOfBirth    DateTime?
+  gender         String?
+  relationship   String
+  nationalId     String?
+  passportNumber String?
+  notes          String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([leadId])
+  @@index([relationship])
+  @@map("lead_dependents")
+}
+
+model LeadCommunication {
+  id String @id @default(uuid())
+
+  leadId String
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  agentId String?
+  agent   Agent? @relation("LeadCommunicationAgent", fields: [agentId], references: [id], onDelete: SetNull)
+
+  communicationType LeadCommunicationType @default(NOTE)
+  channel           String?
+  direction         CommunicationDirection @default(OUTBOUND)
+  subject           String?
+  body              String?
+  message           String?
+  outcome           String?
+  followUpRequired  Boolean   @default(false)
+  followUpDate      DateTime?
+  occurredAt        DateTime
+
+  createdById String?
+  createdBy   User? @relation("LeadCommunicationAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+  @@index([agentId])
+  @@index([occurredAt])
+  @@index([createdById])
+  @@map("lead_communications")
+}
+
+model LeadProposal {
+  id             String @id @default(uuid())
+  proposalNumber String @unique
+
+  leadId  String
+  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  agentId String
+  agent   Agent  @relation("AgentLeadProposals", fields: [agentId], references: [id], onDelete: Cascade)
+
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  insurerId String?
+  insurer   Insurer? @relation(fields: [insurerId], references: [id], onDelete: SetNull)
+
+  premiumAmount     Decimal @db.Decimal(15, 2)
+  coverSummary      String?
+  benefitsSummary   String?
+  exclusionsSummary String?
+  status            LeadProposalStatus @default(DRAFT)
+  sentAt            DateTime?
+  acceptedAt        DateTime?
+  rejectedAt        DateTime?
+  documentUrl       String?
+  notes             String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  convertedPolicies Policy[] @relation("ProposalConvertedPolicies")
+
+  @@index([leadId])
+  @@index([agentId])
+  @@index([status])
+  @@index([productId])
+  @@index([insurerId])
+  @@map("lead_proposals")
 }
 
 model Client {
@@ -910,6 +1108,12 @@ model Client {
   relationshipManagerId String?
   relationshipManager   User?   @relation("ClientManager", fields: [relationshipManagerId], references: [id], onDelete: SetNull)
 
+  agentId             String?
+  agent               Agent?  @relation("AgentClients", fields: [agentId], references: [id], onDelete: SetNull)
+  convertedFromLeadId String?
+  onboardedByUserId   String?
+  onboardedAt         DateTime?
+
   preferredChannel  String?
   preferredLanguage String? @default("en")
   marketingOptIn    Boolean @default(false)
@@ -931,6 +1135,9 @@ model Client {
   messageLogs           MessageLog[]
   messageRecipients     MessageRecipient[]
   communicationPreferences CommunicationPreference[]
+  commissionQuotes      CommissionQuote[]
+  dependents            ClientDependent[]
+  agentCommissions      AgentCommission[]
 
   createdById String?
 
@@ -940,6 +1147,7 @@ model Client {
 
   @@index([type])
   @@index([relationshipManagerId])
+  @@index([agentId])
   @@index([kraPin])
   @@index([email])
   @@index([phone])
@@ -1186,8 +1394,15 @@ model Insurer {
   commissionRules       CommissionRule[]
   directInsurerPayments DirectInsurerPayment[]
   commissionEntries     CommissionEntry[]
+  commissionQuotes      CommissionQuote[]
+  commissionStatements  InsurerCommissionStatement[]
+  commissionInvoices    CommissionInvoice[]
+  commissionPayments    CommissionPayment[]
+  withholdingTaxRecords WithholdingTaxRecord[]
   insurerRemittances    InsurerRemittance[]
   tasks                 Task[] @relation("InsurerTasks")
+  leadProposals         LeadProposal[]
+  agentCommissionRules  AgentCommissionRule[]
 
   createdById String?
 
@@ -1261,8 +1476,11 @@ model Product {
   claims            Claim[]
   claimRequirements ClaimDocumentRequirement[]
   onboardingCases   OnboardingCase[]
-  commissionRules   CommissionRule[]
-  commissionEntries CommissionEntry[]
+  commissionRules      CommissionRule[]
+  commissionEntries    CommissionEntry[]
+  commissionQuotes     CommissionQuote[]
+  leadProposals        LeadProposal[]
+  agentCommissionRules AgentCommissionRule[]
 
   createdById String?
 
@@ -1369,6 +1587,10 @@ model Policy {
   sourceLeadId String?
   sourceLead   Lead?   @relation("LeadSourcedPolicies", fields: [sourceLeadId], references: [id], onDelete: SetNull)
 
+  convertedFromProposalId String?
+  convertedFromProposal   LeadProposal? @relation("ProposalConvertedPolicies", fields: [convertedFromProposalId], references: [id], onDelete: SetNull)
+  onboardedByUserId       String?
+
   startDate DateTime
   endDate   DateTime
 
@@ -1423,6 +1645,8 @@ model Policy {
   paymentAllocations     PaymentAllocation[]
   directInsurerPayments  DirectInsurerPayment[]
   commissionEntries      CommissionEntry[]
+  commissionQuotes       CommissionQuote[]
+  agentCommissions       AgentCommission[]
   tasks                  Task[]                  @relation("PolicyTasks")
   invoiceLines           InvoiceLine[]
   journalEntries         JournalEntry[]
@@ -2199,11 +2423,17 @@ model Agent {
   terminationDate   DateTime?
   terminationReason String?
 
-  policies          Policy[]
-  commissionRules   CommissionRule[]
-  commissionEntries CommissionEntry[]
-  tasks             Task[] @relation("AgentTasks")
-  messageRecipients MessageRecipient[]
+  policies            Policy[]
+  commissionRules     CommissionRule[]
+  commissionEntries   CommissionEntry[]
+  agentCommissionRules AgentCommissionRule[]
+  agentCommissions    AgentCommission[]
+  leads               Lead[] @relation("AgentLeads")
+  clients             Client[] @relation("AgentClients")
+  leadProposals       LeadProposal[] @relation("AgentLeadProposals")
+  leadCommunications  LeadCommunication[] @relation("LeadCommunicationAgent")
+  tasks               Task[] @relation("AgentTasks")
+  messageRecipients   MessageRecipient[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -2216,8 +2446,98 @@ model Agent {
   @@map("agents")
 }
 
+model AgentCommissionRule {
+  id          String @id @default(uuid())
+  name        String
+  description String?
+
+  agentId   String?
+  agent     Agent?  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  insurerId String?
+  insurer   Insurer? @relation(fields: [insurerId], references: [id], onDelete: Cascade)
+
+  appliesTo       AgentCommissionAppliesTo @default(ALL_AGENTS)
+  calculationType AgentCommissionCalcType  @default(PERCENTAGE_OF_PREMIUM)
+  fixedAmount     Decimal?                 @db.Decimal(15, 2)
+  percentageRate  Decimal?                 @db.Decimal(5, 4)
+  minPremium      Decimal?                 @db.Decimal(15, 2)
+  maxPremium      Decimal?                 @db.Decimal(15, 2)
+  status          AgentCommissionRuleStatus @default(ACTIVE)
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  commissions AgentCommission[]
+
+  @@index([agentId])
+  @@index([productId])
+  @@index([insurerId])
+  @@index([status])
+  @@index([appliesTo])
+  @@map("agent_commission_rules")
+}
+
+model AgentCommission {
+  id String @id @default(uuid())
+
+  agentId String
+  agent   Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  policyId String
+  policy   Policy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  leadId String?
+  lead   Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  premiumAmount    Decimal @db.Decimal(15, 2)
+  commissionRuleId String?
+  commissionRule   AgentCommissionRule? @relation(fields: [commissionRuleId], references: [id], onDelete: SetNull)
+
+  calculationType  AgentCommissionCalcType
+  commissionRate   Decimal?                @db.Decimal(5, 4)
+  commissionAmount Decimal                 @db.Decimal(15, 2)
+
+  status     AgentCommissionStatus     @default(PENDING)
+  sourceType AgentCommissionSourceType
+  sourceId   String?
+
+  earnedAt         DateTime
+  approvedAt       DateTime?
+  approvedByUserId String?
+  paidAt           DateTime?
+  paidByUserId     String?
+  paymentReference String?
+  paymentMethod    PaymentMethod?
+  notes            String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([policyId, sourceType, sourceId])
+  @@index([agentId])
+  @@index([clientId])
+  @@index([policyId])
+  @@index([leadId])
+  @@index([status])
+  @@index([sourceType])
+  @@index([earnedAt])
+  @@map("agent_commissions")
+}
+
 model CommissionEntry {
   id String @id @default(uuid())
+
+  commissionQuoteId String?
+  commissionQuote   CommissionQuote? @relation("QuoteToEntry", fields: [commissionQuoteId], references: [id])
 
   agentId String?
   agent   Agent? @relation(fields: [agentId], references: [id])
@@ -2279,6 +2599,7 @@ model CommissionEntry {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([commissionQuoteId])
   @@index([agentId])
   @@index([policyId])
   @@index([insurerId])
@@ -2290,6 +2611,311 @@ model CommissionEntry {
   @@index([earnedDate])
   @@index([status, earnedDate])
   @@map("commission_entries")
+}
+
+model CommissionQuote {
+  id          String @id @default(uuid())
+  quoteNumber String @unique
+
+  policyId String
+  policy   Policy @relation(fields: [policyId], references: [id])
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  insurerId String
+  insurer   Insurer @relation(fields: [insurerId], references: [id])
+
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+
+  premiumAmount Decimal @db.Decimal(15, 2)
+
+  expectedCommissionRate  Decimal @db.Decimal(5, 4)
+  expectedGrossCommission Decimal @db.Decimal(15, 2)
+  expectedWhtRate         Decimal @default(0.10) @db.Decimal(5, 4)
+  expectedWhtAmount       Decimal @db.Decimal(15, 2)
+  expectedNetCommission   Decimal @db.Decimal(15, 2)
+
+  reconciledGrossCommission Decimal? @db.Decimal(15, 2)
+  reconciledWhtAmount       Decimal? @db.Decimal(15, 2)
+  reconciledNetCommission   Decimal? @db.Decimal(15, 2)
+
+  paidAmount Decimal @default(0) @db.Decimal(15, 2)
+  balanceDue Decimal @db.Decimal(15, 2)
+
+  status CommissionQuoteStatus @default(DRAFT)
+
+  assignedAccountantId String?
+  assignedAccountant   User?   @relation("AssignedAccountant", fields: [assignedAccountantId], references: [id], onDelete: SetNull)
+
+  reconciliationReason String?
+  reconciliationNotes  String?
+  reconciledAt         DateTime?
+  reconciledById       String?
+
+  notes String?
+
+  statementLines    InsurerCommissionStatementLine[]
+  invoices          CommissionInvoice[]
+  payments          CommissionPayment[]
+  withholdingTax    WithholdingTaxRecord?
+  commissionEntries CommissionEntry[]                @relation("QuoteToEntry")
+
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([policyId])
+  @@index([clientId])
+  @@index([insurerId])
+  @@index([productId])
+  @@index([status])
+  @@index([assignedAccountantId])
+  @@map("commission_quotes")
+}
+
+model InsurerCommissionStatement {
+  id              String @id @default(uuid())
+  statementNumber String @unique
+
+  insurerId String
+  insurer   Insurer @relation(fields: [insurerId], references: [id])
+
+  statementDate   DateTime
+  periodStart     DateTime
+  periodEnd       DateTime
+  statementDocumentId String?
+
+  totalGrossCommission Decimal @default(0) @db.Decimal(15, 2)
+  totalWhtAmount       Decimal @default(0) @db.Decimal(15, 2)
+  totalNetCommission   Decimal @default(0) @db.Decimal(15, 2)
+
+  uploadedById String?
+  uploadedAt   DateTime  @default(now())
+
+  notes String?
+
+  lines InsurerCommissionStatementLine[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([insurerId])
+  @@index([statementDate])
+  @@map("insurer_commission_statements")
+}
+
+model InsurerCommissionStatementLine {
+  id String @id @default(uuid())
+
+  statementId String
+  statement   InsurerCommissionStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  commissionQuoteId String?
+  commissionQuote   CommissionQuote? @relation(fields: [commissionQuoteId], references: [id])
+
+  policyNumber          String?
+  clientName            String?
+  productName           String?
+  premiumAmount         Decimal? @db.Decimal(15, 2)
+  statementGrossCommission Decimal  @db.Decimal(15, 2)
+  statementWhtAmount    Decimal  @default(0) @db.Decimal(15, 2)
+  statementNetCommission Decimal @db.Decimal(15, 2)
+
+  matched   Boolean   @default(false)
+  matchedAt DateTime?
+  matchedById String?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([statementId])
+  @@index([commissionQuoteId])
+  @@index([policyNumber])
+  @@map("insurer_commission_statement_lines")
+}
+
+model CommissionInvoice {
+  id            String @id @default(uuid())
+  invoiceNumber String @unique
+
+  etimsInvoiceNumber String?
+
+  commissionQuoteId String
+  commissionQuote   CommissionQuote @relation(fields: [commissionQuoteId], references: [id])
+
+  insurerId String
+  insurer   Insurer @relation(fields: [insurerId], references: [id])
+
+  invoiceDate DateTime
+
+  grossCommissionAmount Decimal @db.Decimal(15, 2)
+  whtAmount             Decimal @db.Decimal(15, 2)
+  netExpectedPayment    Decimal @db.Decimal(15, 2)
+
+  invoiceDocumentId String?
+
+  status String @default("ISSUED")
+
+  issuedAt   DateTime?
+  issuedById String?
+  sentAt     DateTime?
+  sentById   String?
+
+  notes String?
+
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([commissionQuoteId])
+  @@index([insurerId])
+  @@index([invoiceDate])
+  @@index([etimsInvoiceNumber])
+  @@map("commission_invoices")
+}
+
+model CommissionPayment {
+  id            String @id @default(uuid())
+  paymentNumber String @unique
+
+  commissionQuoteId String
+  commissionQuote   CommissionQuote @relation(fields: [commissionQuoteId], references: [id])
+
+  insurerId String
+  insurer   Insurer @relation(fields: [insurerId], references: [id])
+
+  amount          Decimal       @db.Decimal(15, 2)
+  paymentDate     DateTime
+  paymentMethod   PaymentMethod
+  transactionReference String?
+
+  bankAccountId String?
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
+
+  mpesaAccountId String?
+  mpesaAccount   MpesaAccount? @relation(fields: [mpesaAccountId], references: [id])
+
+  financeTransactionId String?
+  journalEntryId       String?
+
+  proofDocumentId String?
+
+  notes String?
+
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([commissionQuoteId])
+  @@index([insurerId])
+  @@index([paymentDate])
+  @@index([bankAccountId])
+  @@index([mpesaAccountId])
+  @@map("commission_payments")
+}
+
+model WithholdingTaxRecord {
+  id String @id @default(uuid())
+
+  commissionQuoteId String          @unique
+  commissionQuote   CommissionQuote @relation(fields: [commissionQuoteId], references: [id])
+
+  insurerId String
+  insurer   Insurer @relation(fields: [insurerId], references: [id])
+
+  grossCommissionAmount Decimal @db.Decimal(15, 2)
+  whtRate               Decimal @db.Decimal(5, 4)
+  whtAmount             Decimal @db.Decimal(15, 2)
+  netCommissionAmount   Decimal @db.Decimal(15, 2)
+
+  status String @default("ACCRUED")
+
+  certificateDocumentId String?
+  certificateReceivedAt DateTime?
+
+  notes String?
+
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([commissionQuoteId])
+  @@index([insurerId])
+  @@map("withholding_tax_records")
+}
+
+model ExpensePayment {
+  id            String @id @default(uuid())
+  paymentNumber String @unique
+
+  expenseId String
+  expense   Expense @relation(fields: [expenseId], references: [id])
+
+  amount          Decimal       @db.Decimal(15, 2)
+  paymentDate     DateTime
+  paymentMethod   PaymentMethod
+  paymentReference String?
+
+  bankAccountId String?
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
+
+  mpesaAccountId String?
+  mpesaAccount   MpesaAccount? @relation(fields: [mpesaAccountId], references: [id])
+
+  financeTransactionId String?
+  
+  journalEntryId       String?
+
+  proofDocumentId String?
+
+  notes String?
+
+  paidById  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([expenseId])
+  @@index([paymentDate])
+  @@index([bankAccountId])
+  @@index([mpesaAccountId])
+  @@index([financeTransactionId])
+  @@map("expense_payments")
+}
+
+model ClientDependent {
+  id String @id @default(uuid())
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  firstName      String
+  lastName       String?
+  dateOfBirth    DateTime?
+  gender         String?
+  relationship   String
+  nationalId     String?
+  passportNumber String?
+
+  isActive Boolean @default(true)
+
+  notes String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([relationship])
+  @@map("client_dependents")
 }
 
 // ─────────────────────────────────────────────────────────
@@ -2452,6 +3078,8 @@ model BankAccount {
   statements          StatementUpload[]
   payments            Payment[]
   financeTransactions FinanceTransaction[]
+  commissionPayments  CommissionPayment[]
+  expensePayments     ExpensePayment[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -2487,6 +3115,8 @@ model MpesaAccount {
   payments            Payment[]
   transactions        MpesaTransaction[]
   financeTransactions FinanceTransaction[]
+  commissionPayments  CommissionPayment[]
+  expensePayments     ExpensePayment[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -2582,6 +3212,12 @@ model StatementUpload {
   unmatchedCount    Int @default(0)
 
   status ReconciliationStatus @default(UPLOADED)
+
+  rawExtractedPayload Json?
+  extractionStatus    ExtractionStatus?
+  extractedAt         DateTime?
+  reviewedAt          DateTime?
+  reviewedById        String?
 
   reconciledById String?
   reconciledAt   DateTime?
@@ -2806,6 +3442,8 @@ model Expense {
   amount      Decimal   @db.Decimal(15, 2)
   taxAmount   Decimal   @default(0) @db.Decimal(15, 2)
   totalAmount Decimal   @db.Decimal(15, 2)
+  paidAmount  Decimal   @default(0) @db.Decimal(15, 2)
+  balanceDue  Decimal   @default(0) @db.Decimal(15, 2)
   currency    String    @default("KES")
 
   status ExpenseStatus @default(DRAFT)
@@ -2832,7 +3470,8 @@ model Expense {
 
   notes String?
 
-  journalEntries JournalEntry[]
+  journalEntries   JournalEntry[]
+  expensePayments  ExpensePayment[]
 
   createdById String?
   createdAt   DateTime  @default(now())

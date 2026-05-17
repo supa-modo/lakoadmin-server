@@ -6,6 +6,7 @@ const agentStatusSchema = z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED', 'TERMINATED
 const agentFormSchema = z.object({
   agentCode: z.string().optional().nullable(),
   userId: z.string().uuid().optional().nullable(),
+  managerId: z.string().uuid().optional().nullable(),
   firstName: z.string().optional().nullable(),
   lastName: z.string().optional().nullable(),
   companyName: z.string().optional().nullable(),

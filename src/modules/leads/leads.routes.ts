@@ -10,6 +10,10 @@ import {
   updateStatusSchema,
   convertToClientSchema,
   logActivitySchema,
+  createLeadDependentSchema,
+  updateLeadDependentSchema,
+  createLeadCommunicationSchema,
+  updateLeadProposalSchema,
 } from './leads.validation';
 import { completeLeadConversionSchema } from './leadConversion.validation';
 import {
@@ -23,6 +27,11 @@ import {
   convertToClientHandler,
   logActivityHandler,
   checkDuplicateHandler,
+  createLeadDependentHandler,
+  updateLeadDependentHandler,
+  deleteLeadDependentHandler,
+  createLeadCommunicationHandler,
+  updateLeadProposalHandler,
 } from './leads.controller';
 import {
   completeLeadConversionHandler,
@@ -45,5 +54,10 @@ router.get('/:id/convert/start', requirePermission('leads.convert'), getLeadConv
 router.post('/:id/convert/complete', requirePermission('leads.convert'), validate(completeLeadConversionSchema), completeLeadConversionHandler);
 router.post('/:id/convert', requirePermission('leads.convert'), validate(convertToClientSchema), convertToClientHandler);
 router.post('/:id/activities', requirePermission('leads.update'), validate(logActivitySchema), logActivityHandler);
+router.post('/:id/dependents', requirePermission('leads.update'), validate(createLeadDependentSchema), createLeadDependentHandler);
+router.patch('/:id/dependents/:dependentId', requirePermission('leads.update'), validate(updateLeadDependentSchema), updateLeadDependentHandler);
+router.delete('/:id/dependents/:dependentId', requirePermission('leads.update'), deleteLeadDependentHandler);
+router.post('/:id/communications', requirePermission('leads.update'), validate(createLeadCommunicationSchema), createLeadCommunicationHandler);
+router.patch('/:id/proposal', requirePermission('leads.update'), validate(updateLeadProposalSchema), updateLeadProposalHandler);
 
 export default router;

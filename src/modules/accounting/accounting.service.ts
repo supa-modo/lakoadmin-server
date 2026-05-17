@@ -1,8 +1,14 @@
 import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/client';
 import { prisma } from '../../config/database';
+import { createAuditLog } from '../../services/auditService';
 import { AuthRequest } from '../../types/express';
 import { ensureChartOfAccounts, postJournal, SYSTEM_ACCOUNTS } from './postingEngine.service';
+import {
+  ensureInsurerReceivableEntries,
+  entryBalanceDue,
+  syncBalancesAfterInsurerPayment,
+} from './commissionReceivableSync.service';
 import { recordBrokerPaymentInTransaction } from '../payments/payments.service';
 import {
   AgentPaymentBatchInput,
@@ -280,6 +286,7 @@ async function scoreMatch(
       ? diffDays === 0 ? 0.2 : 0.1
       : diffDays <= 1 ? 0.2 : diffDays <= 2 ? 0.15 : 0.1;
 
+    // Reference matching
     if (ref && normalizeRef(candidate.reference) === ref) {
       score += 0.3;
     } else if (ref && candidate.reference && normalizeRef(candidate.reference)?.includes(ref.slice(0, 6))) {
@@ -288,6 +295,39 @@ async function scoreMatch(
       score += 0.05;
     } else if (context.preset === 'STRICT') {
       score -= 0.1;
+    }
+
+    // Enhanced matching for commission payments
+    if (candidate.type === 'INSURER_COMMISSION_RECEIPT') {
+      // Query commission payment details if available
+      const commissionPayment = await tx.commissionPayment.findFirst({
+        where: { financeTransactionId: candidate.id },
+        include: {
+          insurer: true,
+          commissionQuote: {
+            include: {
+              policy: true,
+            },
+          },
+        },
+      });
+      
+      if (commissionPayment) {
+        const description = (row.reference || candidate.description || '').toLowerCase();
+        
+        // Check if insurer name is in the statement description
+        if (commissionPayment.insurer && description.includes(commissionPayment.insurer.name.toLowerCase())) {
+          score += 0.2;
+        }
+        
+        // Check if policy number is in the statement description
+        if (commissionPayment.commissionQuote?.policy?.policyNumber) {
+          const policyNum = commissionPayment.commissionQuote.policy.policyNumber.toLowerCase();
+          if (description.includes(policyNum)) {
+            score += 0.15;
+          }
+        }
+      }
     }
 
     const candidateAmount = decimal(candidate.amount);
@@ -1614,15 +1654,6 @@ export async function listExpenses(req: AuthRequest) {
 
 export async function createExpense(data: CreateExpenseInput, userId: string) {
   return prisma.$transaction(async (tx) => {
-    if (data.paymentReference) {
-      await checkDuplicateReference(tx, {
-        module: 'expense',
-        reference: data.paymentReference,
-        amount: decimal(data.amount).plus(data.taxAmount ?? 0),
-        date: new Date(data.expenseDate),
-        overrideReason: data.overrideReason,
-      });
-    }
     const totalAmount = decimal(data.amount).plus(data.taxAmount ?? 0);
     const expense = await tx.expense.create({
       data: {
@@ -1635,53 +1666,18 @@ export async function createExpense(data: CreateExpenseInput, userId: string) {
         amount: decimal(data.amount),
         taxAmount: decimal(data.taxAmount ?? 0),
         totalAmount,
+        paidAmount: decimal(0),
+        balanceDue: totalAmount,
         currency: data.currency,
         receiptDocumentId: data.receiptDocumentId ?? null,
-        bankAccountId: data.bankAccountId ?? null,
-        mpesaAccountId: data.mpesaAccountId ?? null,
-        paymentMethod: data.paymentMethod as any,
-        paymentReference: data.paymentReference ?? null,
-        payImmediately: data.payImmediately,
         notes: data.notes ?? null,
-        status: data.payImmediately ? 'PAID' : 'DRAFT',
-        paidAt: data.payImmediately ? new Date(data.expenseDate) : null,
-        paidById: data.payImmediately ? userId : null,
+        status: 'DRAFT',
+        payImmediately: false, // Disabled by default - use recordExpensePayment instead
         createdById: userId,
       },
       include: { category: true },
     });
 
-    if (data.payImmediately) {
-      const categoryAccount = expense.category.ledgerAccountId
-        ? await tx.ledgerAccount.findUnique({ where: { id: expense.category.ledgerAccountId } })
-        : null;
-      const entry = await postJournal(tx, {
-        event: 'EXPENSE_PAID',
-        entryDate: new Date(data.expenseDate),
-        description: expense.description,
-        reference: data.paymentReference,
-        source: { expenseId: expense.id },
-        sourceKey: `expense-paid:${expense.id}`,
-        userId,
-        lines: [
-          { accountCode: categoryAccount?.code ?? SYSTEM_ACCOUNTS.OPERATING_EXPENSES, debit: expense.totalAmount },
-          { accountCode: accountCodeForPayment(data.paymentMethod), credit: expense.totalAmount },
-        ],
-      });
-      await createFinanceTransaction(tx, {
-        type: 'EXPENSE_PAYMENT',
-        transactionDate: new Date(data.expenseDate),
-        description: expense.description,
-        reference: data.paymentReference,
-        amount: expense.totalAmount,
-        direction: 'OUTFLOW',
-        bankAccountId: data.bankAccountId,
-        mpesaAccountId: data.mpesaAccountId,
-        journalEntryId: entry.id,
-        expenseId: expense.id,
-        userId,
-      });
-    }
     return expense;
   });
 }
@@ -1712,7 +1708,8 @@ export async function approveExpense(id: string, userId: string) {
         { accountCode: SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, credit: expense.totalAmount },
       ],
     });
-    return tx.expense.update({ where: { id }, data: { status: 'APPROVED', approvedById: userId, approvedAt: new Date() } });
+    // Changed to PENDING_PAYMENT instead of APPROVED to enforce two-stage workflow
+    return tx.expense.update({ where: { id }, data: { status: 'PENDING_PAYMENT', approvedById: userId, approvedAt: new Date() } });
   });
 }
 
@@ -1723,62 +1720,156 @@ export async function rejectExpense(id: string, reason: string, userId: string) 
   return prisma.expense.update({ where: { id }, data: { status: 'REJECTED', rejectedAt: new Date(), rejectedById: userId, rejectionReason: reason } });
 }
 
-export async function payExpense(id: string, data: PayExpenseInput, userId: string) {
+/**
+ * Record an expense payment (supports partial payments)
+ */
+export async function recordExpensePayment(data: PayExpenseInput, userId: string) {
   return prisma.$transaction(async (tx) => {
-    const expense = await tx.expense.findUnique({ where: { id }, include: { category: true } });
+    const expense = await tx.expense.findUnique({ where: { id: data.expenseId }, include: { category: true } });
     if (!expense) throw new Error('Expense not found');
-    if (expense.status !== 'APPROVED') throw new Error('Expense must be approved before payment');
+    
+    // Allow payment for APPROVED or PENDING_PAYMENT status
+    if (!['APPROVED', 'PENDING_PAYMENT', 'PARTIALLY_PAID'].includes(expense.status)) {
+      throw new Error(`Expense must be approved before payment. Current status: ${expense.status}`);
+    }
+
     await assertOpenFinancialPeriodForPosting(tx, data.paidAt ? new Date(data.paidAt) : new Date(), 'expense:pay');
-    await checkDuplicateReference(tx, {
-      module: 'expense',
-      reference: data.paymentReference,
-      amount: expense.totalAmount,
-      date: data.paidAt ? new Date(data.paidAt) : new Date(),
-      overrideReason: data.overrideReason,
-      excludeId: expense.id,
-    });
+    
+    if (data.paymentReference) {
+      await checkDuplicateReference(tx, {
+        module: 'expense',
+        reference: data.paymentReference,
+        amount: decimal(data.amount),
+        date: data.paidAt ? new Date(data.paidAt) : new Date(),
+        overrideReason: data.overrideReason,
+        excludeId: expense.id,
+      });
+    }
 
-    const entry = await postJournal(tx, {
-      event: 'EXPENSE_PAID',
-      entryDate: data.paidAt ? new Date(data.paidAt) : new Date(),
-      description: expense.description,
-      reference: data.paymentReference,
-      source: { expenseId: id },
-      sourceKey: `expense-paid:${id}`,
-      userId,
-      lines: [
-        { accountCode: SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, debit: expense.totalAmount },
-        { accountCode: accountCodeForPayment(data.paymentMethod), credit: expense.totalAmount },
-      ],
-    });
+    const amount = decimal(data.amount);
+    const newPaidAmount = expense.paidAmount.plus(amount);
+    const newBalanceDue = expense.totalAmount.minus(newPaidAmount);
 
-    await createFinanceTransaction(tx, {
-      type: 'EXPENSE_PAYMENT',
-      transactionDate: data.paidAt ? new Date(data.paidAt) : new Date(),
-      description: expense.description,
-      reference: data.paymentReference,
-      amount: expense.totalAmount,
-      direction: 'OUTFLOW',
-      bankAccountId: data.bankAccountId ?? expense.bankAccountId,
-      mpesaAccountId: data.mpesaAccountId ?? expense.mpesaAccountId,
-      journalEntryId: entry.id,
-      expenseId: id,
-      userId,
-    });
+    // Validate payment amount
+    if (amount.lte(0)) {
+      throw new Error('Payment amount must be positive');
+    }
+    if (newPaidAmount.gt(expense.totalAmount)) {
+      throw new Error(`Payment amount exceeds balance due. Balance: ${expense.balanceDue}, Attempted: ${amount}`);
+    }
 
-    return tx.expense.update({
-      where: { id },
+    // Determine new status
+    let newStatus: any = 'PARTIALLY_PAID';
+    if (newBalanceDue.lte(0)) {
+      newStatus = 'PAID';
+    } else if (expense.status === 'APPROVED') {
+      newStatus = 'PARTIALLY_PAID';
+    }
+
+    // Generate payment number
+    const paymentCount = await tx.expensePayment.count();
+    const paymentNumber = `EP-${new Date().getFullYear()}-${String(paymentCount + 1).padStart(6, '0')}`;
+
+    // Create expense payment record
+    const payment = await tx.expensePayment.create({
       data: {
-        status: 'PAID',
+        paymentNumber,
+        expenseId: expense.id,
+        amount,
+        paymentDate: data.paidAt ? new Date(data.paidAt) : new Date(),
         paymentMethod: data.paymentMethod as any,
-        paymentReference: data.paymentReference,
-        bankAccountId: data.bankAccountId ?? expense.bankAccountId,
-        mpesaAccountId: data.mpesaAccountId ?? expense.mpesaAccountId,
-        paidAt: data.paidAt ? new Date(data.paidAt) : new Date(),
+        paymentReference: data.paymentReference ?? null,
+        bankAccountId: data.bankAccountId ?? null,
+        mpesaAccountId: data.mpesaAccountId ?? null,
+        proofDocumentId: data.proofDocumentId ?? null,
+        notes: data.notes ?? null,
         paidById: userId,
       },
     });
+
+    // Post journal entry
+    const categoryAccount = expense.category.ledgerAccountId
+      ? await tx.ledgerAccount.findUnique({ where: { id: expense.category.ledgerAccountId } })
+      : null;
+
+    const entry = await postJournal(tx, {
+      event: 'EXPENSE_PAYMENT',
+      entryDate: data.paidAt ? new Date(data.paidAt) : new Date(),
+      description: `${expense.description} - Payment ${paymentNumber}`,
+      reference: data.paymentReference,
+      source: { expenseId: expense.id },
+      sourceKey: `expense-payment:${payment.id}`,
+      userId,
+      lines: [
+        { accountCode: SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, debit: amount },
+        { accountCode: accountCodeForPayment(data.paymentMethod), credit: amount },
+      ],
+    });
+
+    // Generate finance transaction number
+    const ftxCount = await tx.financeTransaction.count();
+    const ftxNumber = `FTX-${new Date().getFullYear()}-${String(ftxCount + 1).padStart(6, '0')}`;
+
+    // Create finance transaction
+    const financeTransaction = await tx.financeTransaction.create({
+      data: {
+        transactionNumber: ftxNumber,
+        type: 'EXPENSE_PAYMENT',
+        status: 'POSTED',
+        transactionDate: data.paidAt ? new Date(data.paidAt) : new Date(),
+        description: `${expense.description} - Payment ${paymentNumber}`,
+        reference: data.paymentReference ?? paymentNumber,
+        amount,
+        currency: 'KES',
+        direction: 'OUTFLOW',
+        bankAccountId: data.bankAccountId,
+        mpesaAccountId: data.mpesaAccountId,
+        journalEntryId: entry.id,
+        expenseId: expense.id,
+      },
+    });
+
+    // Update payment with finance transaction and journal IDs
+    await tx.expensePayment.update({
+      where: { id: payment.id },
+      data: {
+        financeTransactionId: financeTransaction.id,
+        journalEntryId: entry.id,
+      },
+    });
+
+    // Update expense amounts and status
+    await tx.expense.update({
+      where: { id: expense.id },
+      data: {
+        paidAmount: newPaidAmount,
+        balanceDue: newBalanceDue,
+        status: newStatus,
+        paidAt: newStatus === 'PAID' ? (data.paidAt ? new Date(data.paidAt) : new Date()) : expense.paidAt,
+        paidById: newStatus === 'PAID' ? userId : expense.paidById,
+      },
+    });
+
+    // Create audit log
+    await createAuditLog({
+      userId,
+      action: 'CREATE',
+      entity: 'ExpensePayment',
+      entityId: payment.id,
+      after: payment,
+      metadata: { expenseId: expense.id },
+    });
+
+    return payment;
   });
+}
+
+/**
+ * @deprecated Use recordExpensePayment for new implementations. Kept for backward compatibility.
+ */
+export async function payExpense(id: string, data: PayExpenseInput, userId: string) {
+  // Redirect to new payment function
+  return recordExpensePayment({ ...data, expenseId: id }, userId);
 }
 
 export async function voidExpense(id: string, reason: string, userId: string) {
@@ -1932,10 +2023,81 @@ export async function payInsurerRemittance(id: string, data: PayRemittanceInput,
   });
 }
 
+/**
+ * Extract transactions from PDF statement (placeholder for future PDF parsing library)
+ * This function would use a PDF parsing library to extract transaction data
+ * For now, it returns a structure indicating extraction is needed
+ */
+export async function extractPdfStatement(statementUploadId: string, userId: string) {
+  return prisma.$transaction(async (tx) => {
+    const upload = await tx.statementUpload.findUnique({
+      where: { id: statementUploadId },
+    });
+
+    if (!upload) throw new Error('Statement upload not found');
+
+    // Update status to IN_PROGRESS
+    await tx.statementUpload.update({
+      where: { id: statementUploadId },
+      data: {
+        extractionStatus: 'IN_PROGRESS',
+      },
+    });
+
+    try {
+      // TODO: Implement actual PDF extraction using a library like pdf-parse or similar
+      // For now, mark as pending review
+      const extractedData = {
+        message: 'Manual extraction required - PDF parsing not yet implemented',
+        extractedAt: new Date().toISOString(),
+        requiresReview: true,
+      };
+
+      await tx.statementUpload.update({
+        where: { id: statementUploadId },
+        data: {
+          extractionStatus: 'COMPLETED',
+          rawExtractedPayload: extractedData as any,
+          extractedAt: new Date(),
+        },
+      });
+
+      return { upload, extractedData, requiresReview: true };
+    } catch (error) {
+      await tx.statementUpload.update({
+        where: { id: statementUploadId },
+        data: {
+          extractionStatus: 'FAILED',
+        },
+      });
+      throw error;
+    }
+  });
+}
+
+/**
+ * Review and approve extracted statement data before posting
+ */
+export async function reviewExtractedStatement(statementUploadId: string, approved: boolean, userId: string) {
+  return prisma.statementUpload.update({
+    where: { id: statementUploadId },
+    data: {
+      extractionStatus: approved ? 'REVIEWED' : 'PENDING',
+      reviewedAt: new Date(),
+      reviewedById: userId,
+    },
+  });
+}
+
 export async function uploadStatement(data: StatementUploadInput, userId: string) {
   return prisma.$transaction(async (tx) => {
     if (!data.bankAccountId && !data.mpesaAccountId) throw new Error('A bank or M-Pesa account is required');
     const preset = data.preset ?? 'STRICT';
+    
+    // Check if this is a PDF that needs extraction
+    const isPdf = data.fileName?.toLowerCase().endsWith('.pdf');
+    const initialStatus = isPdf && data.statementType === 'BANK_PDF' ? 'PENDING_EXTRACTION' : 'UPLOADED';
+    
     const upload = await tx.statementUpload.create({
       data: {
         bankAccountId: data.bankAccountId ?? null,
@@ -1952,6 +2114,8 @@ export async function uploadStatement(data: StatementUploadInput, userId: string
         uploadedById: userId,
         createdById: userId,
         notes: JSON.stringify({ preset, notes: data.notes ?? null }),
+        status: initialStatus as any,
+        extractionStatus: isPdf && data.statementType === 'BANK_PDF' ? 'PENDING' : null,
       },
     });
 
@@ -3016,18 +3180,52 @@ export async function rejectReopenReconciliation(approvalId: string, userId: str
 
 export async function getCommissionReceivableOptions(insurerId: string) {
   if (!insurerId) throw new Error('insurerId is required');
-  return prisma.commissionEntry.findMany({
+
+  await prisma.$transaction(async (tx) => {
+    await ensureInsurerReceivableEntries(tx, insurerId);
+  });
+
+  const entries = await prisma.commissionEntry.findMany({
     where: {
       insurerId,
+      agentId: null,
       insurerCommissionStatus: { in: ['RECEIVABLE', 'PARTIALLY_RECEIVED', 'OVERDUE'] },
       commissionReceivableAmount: { gt: 0 },
     },
     include: {
-      policy: { include: { client: true } },
-      insurer: true,
+      policy: {
+        include: {
+          client: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              companyName: true,
+              tradingName: true,
+            },
+          },
+        },
+      },
+      insurer: { select: { id: true, name: true, shortName: true } },
+      commissionQuote: {
+        select: {
+          id: true,
+          quoteNumber: true,
+          status: true,
+          reconciledNetCommission: true,
+          expectedNetCommission: true,
+        },
+      },
     },
     orderBy: { earnedDate: 'asc' },
   });
+
+  return entries
+    .map((entry) => ({
+      ...entry,
+      balanceDue: entryBalanceDue(entry),
+    }))
+    .filter((entry) => entry.balanceDue.gt(0));
 }
 
 export async function getCommissionReceivables(req: AuthRequest) {
@@ -3064,7 +3262,26 @@ export async function getCommissionReceivables(req: AuthRequest) {
       where,
       skip,
       take: limit,
-      include: { insurer: true, policy: { include: { client: true } }, agent: true, insurerCommissionReceipts: true },
+      include: {
+        insurer: { select: { id: true, name: true, shortName: true } },
+        policy: {
+          include: {
+            client: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                companyName: true,
+                tradingName: true,
+              },
+            },
+          },
+        },
+        commissionQuote: {
+          select: { id: true, quoteNumber: true, status: true },
+        },
+        _count: { select: { insurerCommissionReceipts: true } },
+      },
       orderBy: { earnedDate: 'desc' },
     }),
     prisma.commissionEntry.count({ where }),
@@ -3075,6 +3292,28 @@ export async function getCommissionReceivables(req: AuthRequest) {
 export async function recordCommissionReceipt(data: CommissionReceiptInput, userId: string) {
   return prisma.$transaction(async (tx) => {
     await assertOpenFinancialPeriodForPosting(tx, new Date(data.receivedDate), 'commission-receipt:record');
+
+    const paymentAmount = decimal(data.amount);
+
+    if (data.commissionEntryId) {
+      const entry = await tx.commissionEntry.findUnique({
+        where: { id: data.commissionEntryId },
+      });
+      if (!entry) {
+        throw new FinanceValidationError('Commission receivable not found', 'COMMISSION_ENTRY_NOT_FOUND', {
+          commissionEntryId: data.commissionEntryId,
+        });
+      }
+      const balance = entryBalanceDue(entry);
+      if (paymentAmount.gt(balance)) {
+        throw new FinanceValidationError(
+          `Payment amount exceeds outstanding balance of ${balance.toString()}`,
+          'COMMISSION_OVERPAYMENT',
+          { amount: data.amount, balanceDue: balance.toString() },
+        );
+      }
+    }
+
     await checkDuplicateReference(tx, {
       module: 'commissionReceipt',
       reference: data.reference,
@@ -3110,17 +3349,7 @@ export async function recordCommissionReceipt(data: CommissionReceiptInput, user
       ],
     });
     if (data.commissionEntryId) {
-      const commission = await tx.commissionEntry.findUnique({ where: { id: data.commissionEntryId } });
-      if (commission) {
-        const received = commission.commissionReceivedAmount.plus(data.amount);
-        await tx.commissionEntry.update({
-          where: { id: data.commissionEntryId },
-          data: {
-            commissionReceivedAmount: received,
-            insurerCommissionStatus: received.gte(commission.commissionReceivableAmount) ? 'RECEIVED' : 'PARTIALLY_RECEIVED',
-          },
-        });
-      }
+      await syncBalancesAfterInsurerPayment(tx, data.commissionEntryId, paymentAmount);
     }
     await createFinanceTransaction(tx, {
       type: 'INSURER_COMMISSION_RECEIPT',

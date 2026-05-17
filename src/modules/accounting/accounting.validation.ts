@@ -120,11 +120,15 @@ export const voidExpenseSchema = z.object({
 });
 
 export const payExpenseSchema = z.object({
+  expenseId: z.string().uuid(),
+  amount: z.number().positive(),
   paymentMethod: paymentMethod.optional().default('BANK_TRANSFER'),
-  paymentReference: z.string().min(2),
+  paymentReference: z.string().optional().nullable(),
   paidAt: dateLike.optional(),
   bankAccountId: z.string().uuid().optional().nullable(),
   mpesaAccountId: z.string().uuid().optional().nullable(),
+  proofDocumentId: z.string().uuid().optional().nullable(),
+  notes: z.string().optional().nullable(),
   overrideReason: z.string().optional().nullable(),
 });
 
@@ -160,7 +164,7 @@ const statementRowSchema = z.object({
 export const statementUploadSchema = z.object({
   bankAccountId: z.string().uuid().optional().nullable(),
   mpesaAccountId: z.string().uuid().optional().nullable(),
-  statementType: z.enum(['BANK', 'MPESA']),
+  statementType: z.enum(['BANK', 'MPESA', 'BANK_PDF', 'BANK_CSV', 'MPESA_STATEMENT', 'MANUAL']),
   fileName: z.string().min(2),
   fileUrl: z.string().optional().default('manual-upload'),
   periodStart: dateLike,

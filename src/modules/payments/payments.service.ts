@@ -575,6 +575,23 @@ export async function recognizePolicyCommission(
   source: 'BROKER_COLLECTED_PREMIUM' | 'DIRECT_TO_INSURER_PREMIUM',
   userId: string,
 ): Promise<string | null> {
+  // Check if new commission quote workflow is enabled
+  const setting = await tx.setting.findUnique({
+    where: { key: 'finance.commissionQuoteWorkflowEnabled' },
+  });
+  const useNewWorkflow = setting?.value !== 'false'; // Default to true
+
+  // If new workflow enabled, check if policy has commission quote
+  if (useNewWorkflow) {
+    const quote = await tx.commissionQuote.findFirst({
+      where: { policyId, deletedAt: null },
+    });
+    // If quote exists, skip old workflow
+    if (quote) {
+      return null;
+    }
+  }
+
   const existing = await tx.commissionEntry.findFirst({
     where: {
       policyId,

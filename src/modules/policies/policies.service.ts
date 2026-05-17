@@ -11,6 +11,7 @@ import {
 import { generatePolicyNumber, generateEndorsementNumber } from './policyNumber.service';
 import { calculatePremium } from './premium.service';
 import { ensureWorkflowTask } from '../workflows/workflowTaskAutomation.service';
+import { createCommissionQuoteFromPolicy } from '../commissionQuotes/commissionQuotes.service';
 
 function getClientFullName(client: any): string | null {
   if (!client) return null;
@@ -226,43 +227,6 @@ export async function getPolicyActivationReadiness(id: string) {
 
   const hasSchedule = policy.documents.some((doc) => doc.type === 'POLICY_SCHEDULE');
   const hasCertificate = policy.documents.some((doc) => doc.type === 'CERTIFICATE');
-  const outstanding = Number(policy.outstandingAmount);
-  const totalPremium = Number(policy.totalPremium);
-  const paid = Number(policy.paidAmount);
-  const mode = policy.premiumCollectionMode;
-  const brokerPaid = Number(policy.brokerCollectedAmount);
-  const directPaid = Number(policy.directToInsurerAmount);
-  const hasReceipt = policy.paymentAllocations.some((allocation) => !!allocation.payment?.receipt && !allocation.payment.receipt.voidedAt);
-  const verifiedDirectPayments = policy.directInsurerPayments.filter((payment) => payment.verificationStatus === 'VERIFIED');
-  const directVerifiedAmount = verifiedDirectPayments.reduce((sum, payment) => sum + Number(payment.amount), 0);
-  const hasVerifiedDirectPayment = directVerifiedAmount > 0;
-  const directPaymentsHaveReferences = verifiedDirectPayments.every((payment) => !!payment.insurerReference);
-  const directPaymentsHaveProof = verifiedDirectPayments.every((payment) => !!payment.proofOfPaymentDocumentId || !!payment.acknowledgementDocumentId);
-  const hasCommissionReceivable = Number(policy.commissionReceivableAmount) > 0 || policy.commissionEntries.length > 0;
-  const hasCommissionAccounted = hasCommissionReceivable || Number(policy.commissionReceivedAmount) > 0;
-  const hasAccountingPosted =
-    policy.accountingPostedStatus === 'POSTED' ||
-    policy.commissionEntries.some((entry) => entry.accountingPostedStatus === 'POSTED') ||
-    verifiedDirectPayments.some((payment) => payment.accountingPostedStatus === 'POSTED');
-
-  const directPaymentIssues = [
-    !hasVerifiedDirectPayment ? 'record and verify a direct insurer payment' : null,
-    hasVerifiedDirectPayment && directVerifiedAmount < totalPremium
-      ? `verified direct payment total is KES ${directVerifiedAmount.toLocaleString('en-KE', { maximumFractionDigits: 0 })}, below total premium KES ${totalPremium.toLocaleString('en-KE', { maximumFractionDigits: 0 })}`
-      : null,
-    hasVerifiedDirectPayment && !directPaymentsHaveReferences ? 'add insurer reference to every verified direct payment' : null,
-    hasVerifiedDirectPayment && !directPaymentsHaveProof ? 'link proof of payment or acknowledgement to every verified direct payment' : null,
-    !hasCommissionAccounted ? 'calculate or confirm commission receivable' : null,
-  ].filter(Boolean);
-
-  const mixedPaymentIssues = [
-    brokerPaid <= 0 ? 'record the broker-collected portion' : null,
-    brokerPaid > 0 && !hasReceipt ? 'generate a broker receipt for the broker-collected portion' : null,
-    !hasVerifiedDirectPayment ? 'record and verify the direct-to-insurer portion' : null,
-    hasVerifiedDirectPayment && !directPaymentsHaveReferences ? 'add insurer reference to every verified direct payment' : null,
-    outstanding > 0 ? `clear outstanding premium of KES ${outstanding.toLocaleString('en-KE', { maximumFractionDigits: 0 })}` : null,
-    !hasCommissionAccounted ? 'calculate or confirm commission' : null,
-  ].filter(Boolean);
 
   const memberData = policy.onboardingCase?.memberData as any;
   const expectedMembers = Array.isArray(memberData?.members) ? memberData.members.length : 0;
@@ -288,53 +252,6 @@ export async function getPolicyActivationReadiness(id: string) {
       label: 'Insurer attached',
       passed: !!policy.insurerId && !!policy.insurer,
       message: policy.insurer ? 'Insurer is linked.' : 'Select the underwriting insurer.',
-      severity: 'required',
-    },
-    mode === 'BROKER_COLLECTED'
-      ? {
-        key: 'broker_premium_paid',
-        label: 'Broker-collected premium allocated',
-        passed: outstanding <= 0 && totalPremium > 0 && brokerPaid >= totalPremium && hasReceipt,
-        message: outstanding <= 0 && hasReceipt
-          ? 'Broker-collected premium is allocated and receipted.'
-          : `Broker-collected premium needs allocation and receipt. Outstanding KES ${outstanding.toLocaleString('en-KE', { maximumFractionDigits: 0 })}.`,
-        severity: 'required',
-      }
-      : mode === 'DIRECT_TO_INSURER'
-        ? {
-          key: 'direct_insurer_payment_verified',
-          label: 'Direct insurer payment verified',
-          passed: hasVerifiedDirectPayment && directVerifiedAmount >= totalPremium && directPaymentsHaveReferences && directPaymentsHaveProof && hasCommissionAccounted,
-          message: directPaymentIssues.length
-            ? directPaymentIssues.join('; ') + '.'
-            : 'Direct insurer payment is verified with insurer reference, proof/acknowledgement, and commission receivable.',
-          severity: 'required',
-        }
-        : {
-          key: 'mixed_premium_verified',
-          label: 'Mixed premium allocation complete',
-          passed: brokerPaid > 0 && hasReceipt && hasVerifiedDirectPayment && outstanding <= 0 && directPaymentsHaveReferences && hasCommissionAccounted,
-          message: mixedPaymentIssues.length
-            ? mixedPaymentIssues.join('; ') + '.'
-            : 'Broker and direct-to-insurer portions are complete.',
-          severity: 'required',
-        },
-    {
-      key: 'commission_accounted',
-      label: 'Commission calculated',
-      passed: hasCommissionAccounted,
-      message: hasCommissionAccounted
-        ? 'Commission has been calculated and linked to the policy.'
-        : 'Calculate commission before activation.',
-      severity: 'required',
-    },
-    {
-      key: 'accounting_posted',
-      label: 'Accounting posted',
-      passed: hasAccountingPosted,
-      message: hasAccountingPosted
-        ? 'Required financial posting is complete.'
-        : 'Post or resolve queued accounting events before activation.',
       severity: 'required',
     },
     {
@@ -383,6 +300,7 @@ export async function getPolicyActivationReadiness(id: string) {
   ];
 
   const missingRequired = checks.filter((check) => check.severity === 'required' && !check.passed);
+  const warnings = checks.filter((check) => check.severity === 'recommended' && !check.passed);
 
   return {
     policyId: policy.id,
@@ -390,6 +308,8 @@ export async function getPolicyActivationReadiness(id: string) {
     ready: missingRequired.length === 0,
     checks,
     missingRequired,
+    warnings,
+    financeChecksOptional: true,
   };
 }
 
@@ -466,6 +386,13 @@ export async function createPolicy(data: CreatePolicyInput, userId: string) {
     },
   }).catch(() => null);
 
+  // Create commission quote (new workflow)
+  try {
+    await createCommissionQuoteFromPolicy(policy.id, userId);
+  } catch (error) {
+    console.error('Failed to create commission quote:', error);
+  }
+
   return attachClientFullName(policy);
 }
 
@@ -501,18 +428,27 @@ export async function updatePolicy(id: string, data: UpdatePolicyInput, userId: 
   }
 
   let premiumFields: any = {};
-  if (data.basePremium !== undefined) {
-    const newBase = data.basePremium;
+  const hasPremiumChange =
+    data.basePremium !== undefined ||
+    data.trainingLevy !== undefined ||
+    data.pcifLevy !== undefined ||
+    data.stampDuty !== undefined ||
+    data.policyFee !== undefined;
+  if (hasPremiumChange) {
+    const newBase = data.basePremium ?? Number(existing.basePremium);
     const breakdown = calculatePremium({
       basePremium: newBase,
+      trainingLevy: data.trainingLevy ?? Number(existing.trainingLevy),
+      pcifLevy: data.pcifLevy ?? Number(existing.pcifLevy),
+      stampDuty: data.stampDuty ?? Number(existing.stampDuty),
       policyFee: data.policyFee ?? Number(existing.policyFee),
     });
     premiumFields = {
       basePremium: breakdown.basePremium,
-      trainingLevy: data.trainingLevy ?? breakdown.trainingLevy,
-      pcifLevy: data.pcifLevy ?? breakdown.pcifLevy,
-      stampDuty: data.stampDuty ?? breakdown.stampDuty,
-      policyFee: data.policyFee ?? breakdown.policyFee,
+      trainingLevy: breakdown.trainingLevy,
+      pcifLevy: breakdown.pcifLevy,
+      stampDuty: breakdown.stampDuty,
+      policyFee: breakdown.policyFee,
       totalPremium: breakdown.totalPremium,
       outstandingAmount: Math.max(0, breakdown.totalPremium - Number(existing.paidAmount)),
       totalPremiumAmount: breakdown.totalPremium,
@@ -585,6 +521,22 @@ export async function activatePolicy(id: string, userId: string) {
   });
 
   await logPolicyEvent(id, 'ACTIVATED', `Policy ${policy.policyNumber} activated`, { previousStatus: policy.status }, userId);
+
+  if (updated.agentId) {
+    const { createAgentCommissionRecord } = await import('../agent-commission/agentCommission.service');
+    await createAgentCommissionRecord({
+      agentId: updated.agentId,
+      policyId: updated.id,
+      clientId: updated.clientId,
+      leadId: updated.sourceLeadId,
+      premiumAmount: Number(updated.totalPremium),
+      productId: updated.productId,
+      insurerId: updated.insurerId,
+      sourceType: 'POLICY_ACTIVATION',
+      sourceId: updated.id,
+      createdByUserId: userId,
+    }).catch(() => null);
+  }
 
   return updated;
 }
@@ -965,6 +917,9 @@ export async function createRenewal(originalPolicyId: string, data: CreateRenewa
   const policyNumber = await generatePolicyNumber();
   const premiumBreakdown = calculatePremium({
     basePremium: data.basePremium,
+    trainingLevy: data.trainingLevy,
+    pcifLevy: data.pcifLevy,
+    stampDuty: data.stampDuty,
     policyFee: data.policyFee,
   });
 
@@ -981,10 +936,10 @@ export async function createRenewal(originalPolicyId: string, data: CreateRenewa
         endDate: new Date(data.endDate),
         sumInsured: data.sumInsured ?? original.sumInsured,
         basePremium: premiumBreakdown.basePremium,
-        trainingLevy: data.trainingLevy ?? premiumBreakdown.trainingLevy,
-        pcifLevy: data.pcifLevy ?? premiumBreakdown.pcifLevy,
-        stampDuty: data.stampDuty ?? premiumBreakdown.stampDuty,
-        policyFee: data.policyFee ?? premiumBreakdown.policyFee,
+        trainingLevy: premiumBreakdown.trainingLevy,
+        pcifLevy: premiumBreakdown.pcifLevy,
+        stampDuty: premiumBreakdown.stampDuty,
+        policyFee: premiumBreakdown.policyFee,
         totalPremium: premiumBreakdown.totalPremium,
         outstandingAmount: premiumBreakdown.totalPremium,
         paymentFrequency: (data.paymentFrequency as any) ?? original.paymentFrequency,

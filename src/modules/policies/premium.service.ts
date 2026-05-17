@@ -10,6 +10,11 @@
 export interface PremiumInput {
   basePremium: number;
   policyFee?: number;
+  trainingLevy?: number;
+  pcifLevy?: number;
+  stampDuty?: number;
+  includeTrainingLevy?: boolean;
+  includePcifLevy?: boolean;
   includeStampDuty?: boolean;
   customTrainingLevyRate?: number;
   customPcifRate?: number;
@@ -36,21 +41,30 @@ export function calculatePremium(input: PremiumInput): PremiumBreakdown {
   const {
     basePremium,
     policyFee = 0,
-    includeStampDuty = true,
+    trainingLevy,
+    pcifLevy,
+    stampDuty,
+    includeTrainingLevy = trainingLevy !== undefined,
+    includePcifLevy = pcifLevy !== undefined,
+    includeStampDuty = stampDuty !== undefined,
     customTrainingLevyRate,
     customPcifRate,
   } = input;
 
-  const trainingLevy = round2(basePremium * (customTrainingLevyRate ?? TRAINING_LEVY_RATE));
-  const pcifLevy = round2(basePremium * (customPcifRate ?? PCIF_LEVY_RATE));
-  const stampDuty = includeStampDuty ? STAMP_DUTY_FLAT : 0;
-  const totalPremium = round2(basePremium + trainingLevy + pcifLevy + stampDuty + policyFee);
+  const resolvedTrainingLevy = includeTrainingLevy
+    ? round2(trainingLevy ?? basePremium * (customTrainingLevyRate ?? TRAINING_LEVY_RATE))
+    : 0;
+  const resolvedPcifLevy = includePcifLevy
+    ? round2(pcifLevy ?? basePremium * (customPcifRate ?? PCIF_LEVY_RATE))
+    : 0;
+  const resolvedStampDuty = includeStampDuty ? round2(stampDuty ?? STAMP_DUTY_FLAT) : 0;
+  const totalPremium = round2(basePremium + resolvedTrainingLevy + resolvedPcifLevy + resolvedStampDuty + policyFee);
 
   return {
     basePremium: round2(basePremium),
-    trainingLevy,
-    pcifLevy,
-    stampDuty,
+    trainingLevy: resolvedTrainingLevy,
+    pcifLevy: resolvedPcifLevy,
+    stampDuty: resolvedStampDuty,
     policyFee: round2(policyFee),
     totalPremium,
     outstandingAmount: totalPremium,
@@ -66,6 +80,9 @@ export function applyPremiumChange(
 ): PremiumBreakdown {
   return calculatePremium({
     basePremium: current.basePremium + premiumChange,
+    trainingLevy: current.trainingLevy,
+    pcifLevy: current.pcifLevy,
+    stampDuty: current.stampDuty,
     policyFee: current.policyFee,
   });
 }

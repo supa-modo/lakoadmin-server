@@ -8,6 +8,7 @@ import {
   getAgentById,
   getAgentMetrics,
   getAgentStatement,
+  getMyAgentPortal,
   listAgents,
   updateAgent,
 } from './agents.service';
@@ -33,6 +34,14 @@ export async function listAgentsHandler(req: AuthRequest, res: Response, next: N
 export async function getAgentHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     sendSuccess(res, await getAgentById(req.params.id));
+  } catch (error) {
+    handleAgentError(error, res, next);
+  }
+}
+
+export async function getMyAgentPortalHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    sendSuccess(res, await getMyAgentPortal(req.user!.id, req.user!.email));
   } catch (error) {
     handleAgentError(error, res, next);
   }

@@ -10,6 +10,11 @@ import {
   convertLeadToClient,
   logLeadActivity,
   checkDuplicateLead,
+  createLeadDependent,
+  updateLeadDependent,
+  deleteLeadDependent,
+  createLeadCommunication,
+  updateLeadProposal,
 } from './leads.service';
 import { sendSuccess, sendCreated, sendError, buildPaginationMeta, sendPaginated } from '../../utils/apiResponse';
 import { AuthRequest } from '../../types/express';
@@ -126,10 +131,14 @@ export async function updateLeadStatusHandler(req: AuthRequest, res: Response, n
 
 export async function convertToClientHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { clientType, relationshipManagerId } = req.body;
-    const result = await convertLeadToClient(req.params.id, clientType, relationshipManagerId, req.user?.id);
-    logAudit(req, 'CONVERT', 'Lead', req.params.id, null, { clientId: result.client.id });
-    sendSuccess(res, result, 'Lead converted to client successfully');
+    const result = await convertLeadToClient(req.params.id, req.body, req.user?.id);
+    logAudit(req, 'CONVERT', 'Lead', req.params.id, null, { 
+      clientId: result.client.id,
+      dependentsCreated: result.dependents?.length || 0,
+      policyCreated: !!result.policy,
+      commissionQuoteCreated: !!result.commissionQuote,
+    });
+    sendSuccess(res, result, `Lead converted to client successfully${result.dependents?.length ? ` with ${result.dependents.length} dependent(s)` : ''}${result.policy ? ' and policy created' : ''}`);
   } catch (err) {
     if ((err as Error).message === 'Lead not found') {
       sendError(res, 'Lead not found', 404);
@@ -162,5 +171,78 @@ export async function checkDuplicateHandler(req: AuthRequest, res: Response, nex
     sendSuccess(res, { duplicate: !!duplicate, lead: duplicate });
   } catch (err) {
     next(err);
+  }
+}
+
+function handleLeadSubresourceError(err: Error, res: Response, next: NextFunction): void {
+  if (err.message === 'Lead not found' || err.message === 'Dependent not found') {
+    sendError(res, err.message, 404);
+    return;
+  }
+  next(err);
+}
+
+export async function createLeadDependentHandler(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const dependent = await createLeadDependent(req.params.id, req.body);
+    sendCreated(res, dependent, 'Dependent added');
+  } catch (err) {
+    handleLeadSubresourceError(err as Error, res, next);
+  }
+}
+
+export async function updateLeadDependentHandler(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const dependent = await updateLeadDependent(req.params.id, req.params.dependentId, req.body);
+    sendSuccess(res, dependent, 'Dependent updated');
+  } catch (err) {
+    handleLeadSubresourceError(err as Error, res, next);
+  }
+}
+
+export async function deleteLeadDependentHandler(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    await deleteLeadDependent(req.params.id, req.params.dependentId);
+    sendSuccess(res, null, 'Dependent removed');
+  } catch (err) {
+    handleLeadSubresourceError(err as Error, res, next);
+  }
+}
+
+export async function createLeadCommunicationHandler(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const communication = await createLeadCommunication(req.params.id, req.body, req.user?.id);
+    sendCreated(res, communication, 'Communication logged');
+  } catch (err) {
+    handleLeadSubresourceError(err as Error, res, next);
+  }
+}
+
+export async function updateLeadProposalHandler(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const lead = await updateLeadProposal(req.params.id, req.body);
+    sendSuccess(res, lead, 'Proposal updated');
+  } catch (err) {
+    handleLeadSubresourceError(err as Error, res, next);
   }
 }

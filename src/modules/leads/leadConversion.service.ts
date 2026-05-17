@@ -1,6 +1,8 @@
 import { ClientType, Prisma } from '@prisma/client';
 import { prisma } from '../../config/database';
 import { CompleteLeadConversionInput } from './leadConversion.validation';
+import { copyLeadDependentsToClient } from './leads.service';
+import type { CreatePolicyInput } from '../policies/policies.validation';
 
 type MissingField = {
   key: string;
@@ -204,7 +206,10 @@ export async function completeLeadConversion(
   userId?: string,
 ) {
   return prisma.$transaction(async (tx) => {
-    const lead = await tx.lead.findFirst({ where: { id: leadId, deletedAt: null } });
+    const lead = await tx.lead.findFirst({
+      where: { id: leadId, deletedAt: null },
+      include: { dependents: { where: { deletedAt: null } } },
+    });
     if (!lead) throw new Error('Lead not found');
     if (lead.convertedToClientId) throw new Error('Lead has already been converted to a client');
 
@@ -268,6 +273,48 @@ export async function completeLeadConversion(
     });
 
     const tasks = [];
+    let dependentsCreated = 0;
+    if (input.copyLeadDependents !== false && lead.dependents.length > 0) {
+      const copied = await copyLeadDependentsToClient(tx, leadId, client.id);
+      dependentsCreated = copied.length;
+    }
+
+    let policy = null;
+    let commissionQuote = null;
+    if (input.createPolicy && input.policy) {
+      const { createPolicy: createPolicyFn } = await import('../policies/policies.service');
+      const policyInput: CreatePolicyInput = {
+        clientId: client.id,
+        productId: input.policy.productId,
+        insurerId: input.policy.insurerId,
+        startDate: input.policy.startDate,
+        endDate: input.policy.endDate,
+        basePremium: input.policy.basePremium,
+        trainingLevy: 0,
+        pcifLevy: 0,
+        stampDuty: 0,
+        policyFee: 0,
+        sumInsured: input.policy.sumInsured ?? null,
+        premiumCollectionMode: input.policy.premiumCollectionMode ?? 'BROKER_COLLECTED',
+        paymentFrequency: 'ANNUAL',
+        sourceLeadId: leadId,
+      };
+      policy = await createPolicyFn(policyInput, userId ?? '');
+
+      commissionQuote = await tx.commissionQuote.findFirst({
+        where: { policyId: policy.id },
+      });
+
+      await tx.leadActivity.create({
+        data: {
+          leadId,
+          type: 'POLICY_CREATED',
+          description: `Policy ${policy.policyNumber ?? policy.id} created during conversion`,
+          userId: userId ?? null,
+          metadata: { policyId: policy.id, commissionQuoteId: commissionQuote?.id },
+        },
+      });
+    }
 
     if (input.createMissingDetailsTask && missingFields.length > 0) {
       tasks.push(await createAutomationTask(tx, {
@@ -327,7 +374,10 @@ export async function completeLeadConversion(
       client,
       onboardingCase,
       tasks,
-      nextStep: onboardingCase ? 'ONBOARDING' : 'FOLLOW_UP',
+      dependentsCreated,
+      policy,
+      commissionQuote,
+      nextStep: policy ? 'POLICY' : onboardingCase ? 'ONBOARDING' : 'FOLLOW_UP',
     };
   });
 }

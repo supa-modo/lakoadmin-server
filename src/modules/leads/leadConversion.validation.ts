@@ -52,6 +52,18 @@ export const completeLeadConversionSchema = z.object({
       notes: nullableString,
     }).optional().nullable(),
   }).optional().nullable(),
+  copyLeadDependents: z.boolean().optional().default(true),
+  createPolicy: z.boolean().optional().default(false),
+  policy: z.object({
+    productId: z.string().uuid(),
+    insurerId: z.string().uuid(),
+    startDate: z.string(),
+    endDate: z.string(),
+    basePremium: z.number().positive(),
+    sumInsured: z.number().optional().nullable(),
+    coverType: z.string().optional().nullable(),
+    premiumCollectionMode: z.enum(['BROKER_COLLECTED', 'DIRECT_TO_INSURER', 'MIXED']).default('BROKER_COLLECTED'),
+  }).optional().nullable(),
 });
 
 export type CompleteLeadConversionInput = z.infer<typeof completeLeadConversionSchema>;

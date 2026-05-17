@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>ACK-2026-000003</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 34px; color: #172331; font-family: Arial, Helvetica, sans-serif; }
+    .shell { border: 1px solid #d8e0e5; border-radius: 18px; overflow: hidden; }
+    .header { background: #0f3f3c; color: #ffffff; padding: 28px 32px; display: flex; justify-content: space-between; }
+    .brand { font-size: 26px; font-weight: 800; letter-spacing: .4px; }
+    .white-muted { color: #d8f1ee; }
+    .section { padding: 26px 32px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+    .label { font-size: 11px; text-transform: uppercase; color: #718096; font-weight: 700; margin-bottom: 6px; }
+    .value { font-size: 14px; font-weight: 700; }
+    .notice { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 14px; padding: 18px; font-weight: 700; line-height: 1.5; }
+    .amount-main { font-size: 30px; color: #0f766e; font-weight: 800; }
+    .footer { border-top: 1px solid #eef2f7; padding: 18px 32px; font-size: 11px; color: #64748b; display: flex; justify-content: space-between; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="header">
+      <div>
+        <div class="brand">Lako Agency</div>
+        <div class="white-muted">Payment Acknowledgement</div>
+      </div>
+      <div style="text-align:right">
+        <div class="white-muted">Acknowledgement No.</div>
+        <div style="font-size:22px;font-weight:800">ACK-2026-000003</div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="notice">Premium was paid directly to the insurer. This is not a cash receipt from Lako Agency.</div>
+    </div>
+    <div class="section grid">
+      <div>
+        <div class="label">Client</div>
+        <div class="value">Savannah Hardware Stores Ltd</div>
+      </div>
+      <div>
+        <div class="label">Insurer</div>
+        <div class="value">APA Insurance Limited</div>
+      </div>
+      <div>
+        <div class="label">Policy</div>
+        <div class="value">POL-2026-000003</div>
+      </div>
+      <div>
+        <div class="label">Amount Paid to Insurer</div>
+        <div class="amount-main">Ksh 500,000.00</div>
+      </div>
+      <div>
+        <div class="label">Payment Method</div>
+        <div class="value">BANK_TRANSFER</div>
+      </div>
+      <div>
+        <div class="label">Insurer Reference</div>
+        <div class="value">CHEQ134567</div>
+      </div>
+      <div>
+        <div class="label">Payment Date</div>
+        <div class="value">16/05/2026</div>
+      </div>
+      <div>
+        <div class="label">Notes</div>
+        <div class="value"></div>
+      </div>
+    </div>
+    <div class="footer">
+      <span>Issued 16/05/2026, 13:46:21</span>
+      <span>Broker revenue is commission only.</span>
+    </div>
+  </div>
+</body>
+</html>

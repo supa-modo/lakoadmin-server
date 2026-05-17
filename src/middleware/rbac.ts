@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { sendError } from '../utils/apiResponse';
 import { AuthRequest } from '../types/express';
+import { hasAnyRole, hasElevatedRole } from '../utils/roles';
 
 function hasPermission(userPermissions: string[], required: string[]): boolean {
   return required.every((perm) => userPermissions.includes(perm));
@@ -8,10 +9,6 @@ function hasPermission(userPermissions: string[], required: string[]): boolean {
 
 function hasAnyPermission(userPermissions: string[], required: string[]): boolean {
   return required.some((perm) => userPermissions.includes(perm));
-}
-
-function hasRole(userRoles: string[], required: string[]): boolean {
-  return required.some((role) => userRoles.includes(role));
 }
 
 /**
@@ -24,7 +21,7 @@ export function requirePermission(...permissions: string[]) {
       return;
     }
 
-    if (!hasPermission(req.user.permissions, permissions)) {
+    if (!hasElevatedRole(req.user.roles) && !hasPermission(req.user.permissions, permissions)) {
       sendError(res, 'Insufficient permissions', 403);
       return;
     }
@@ -43,7 +40,7 @@ export function requireAnyPermission(...permissions: string[]) {
       return;
     }
 
-    if (!hasAnyPermission(req.user.permissions, permissions)) {
+    if (!hasElevatedRole(req.user.roles) && !hasAnyPermission(req.user.permissions, permissions)) {
       sendError(res, 'Insufficient permissions', 403);
       return;
     }
@@ -62,7 +59,7 @@ export function requireRole(...roles: string[]) {
       return;
     }
 
-    if (!hasRole(req.user.roles, roles)) {
+    if (!hasElevatedRole(req.user.roles) && !hasAnyRole(req.user.roles, roles)) {
       sendError(res, 'Insufficient role', 403);
       return;
     }

@@ -26,6 +26,10 @@ export const createLeadSchema = z.object({
   notes: z.string().optional().nullable(),
   nextFollowUp: z.string().datetime().optional().nullable(),
   assignedToId: optionalUuidNullable,
+  proposalStatus: z.string().optional().nullable(),
+  proposalDocumentId: z.string().optional().nullable(),
+  proposalSentAt: z.string().datetime().optional().nullable(),
+  proposalNotes: z.string().optional().nullable(),
 });
 
 export const updateLeadSchema = z.object({
@@ -46,6 +50,10 @@ export const updateLeadSchema = z.object({
   notes: z.string().optional().nullable(),
   nextFollowUp: z.string().datetime().optional().nullable(),
   assignedToId: optionalUuidNullable,
+  proposalStatus: z.string().optional().nullable(),
+  proposalDocumentId: z.string().optional().nullable(),
+  proposalSentAt: z.string().datetime().optional().nullable(),
+  proposalNotes: z.string().optional().nullable(),
 });
 
 export const listLeadsSchema = z.object({
@@ -73,10 +81,60 @@ export const convertToClientSchema = z.object({
     (val) => (val === '' ? null : val),
     z.string().uuid().optional().nullable(),
   ),
+  dependents: z.array(z.object({
+    firstName: z.string().min(1, 'First name is required'),
+    lastName: z.string().optional().nullable(),
+    dateOfBirth: z.string().optional().nullable(),
+    gender: z.string().optional().nullable(),
+    relationship: z.enum(['SPOUSE', 'CHILD', 'PARENT', 'SIBLING', 'OTHER']),
+    nationalId: z.string().optional().nullable(),
+    passportNumber: z.string().optional().nullable(),
+    notes: z.string().optional().nullable(),
+  })).optional().default([]),
+  createPolicy: z.boolean().optional().default(false),
+  policy: z.object({
+    productId: z.string().uuid(),
+    insurerId: z.string().uuid(),
+    startDate: z.string(),
+    endDate: z.string(),
+    basePremium: z.number().positive(),
+    sumInsured: z.number().optional().nullable(),
+    coverType: z.string().optional().nullable(),
+    premiumCollectionMode: z.enum(['BROKER_COLLECTED', 'DIRECT_TO_INSURER', 'MIXED']).default('BROKER_COLLECTED'),
+  }).optional().nullable(),
 });
 
 export const logActivitySchema = z.object({
   type: z.string().min(1, 'Activity type is required'),
   description: z.string().min(1, 'Description is required'),
   metadata: z.record(z.any()).optional().nullable(),
+});
+
+export const leadDependentSchema = z.object({
+  firstName: z.string().trim().min(1, 'First name is required'),
+  lastName: z.string().trim().optional().nullable(),
+  dateOfBirth: z.string().optional().nullable(),
+  gender: z.string().optional().nullable(),
+  relationship: z.string().trim().min(1, 'Relationship is required'),
+  nationalId: z.string().optional().nullable(),
+  passportNumber: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
+export const createLeadDependentSchema = leadDependentSchema;
+export const updateLeadDependentSchema = leadDependentSchema.partial();
+
+export const createLeadCommunicationSchema = z.object({
+  channel: z.enum(['EMAIL', 'PHONE', 'SMS', 'WHATSAPP', 'MEETING', 'OTHER']),
+  direction: z.enum(['INBOUND', 'OUTBOUND']),
+  subject: z.string().optional().nullable(),
+  body: z.string().optional().nullable(),
+  occurredAt: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}/)),
+});
+
+export const updateLeadProposalSchema = z.object({
+  proposalStatus: z.string().optional().nullable(),
+  proposalDocumentId: z.string().optional().nullable(),
+  proposalSentAt: z.string().datetime().optional().nullable(),
+  proposalNotes: z.string().optional().nullable(),
 });

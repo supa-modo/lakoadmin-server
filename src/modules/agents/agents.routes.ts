@@ -9,6 +9,7 @@ import {
   getAgentHandler,
   getAgentMetricsHandler,
   getAgentStatementHandler,
+  getMyAgentPortalHandler,
   listAgentsHandler,
   updateAgentHandler,
 } from './agents.controller';
@@ -17,6 +18,7 @@ const router = Router();
 
 router.use(authenticateToken);
 
+router.get('/portal/me', requirePermission('agents.portal.read'), getMyAgentPortalHandler);
 router.get('/', requirePermission('agents.read'), listAgentsHandler);
 router.post('/', requirePermission('agents.create'), validate(createAgentSchema), createAgentHandler);
 router.get('/:id', requirePermission('agents.read'), getAgentHandler);
@@ -26,4 +28,3 @@ router.get('/:id/metrics', requirePermission('agents.read'), getAgentMetricsHand
 router.get('/:id/statement', requirePermission('commissions.statement'), getAgentStatementHandler);
 
 export default router;
-

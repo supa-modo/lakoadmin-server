@@ -17,6 +17,7 @@ import insurersRoutes from '../modules/insurers/insurers.routes';
 import productsRoutes from '../modules/products/products.routes';
 import commissionsRoutes from '../modules/commissions/commissions.routes';
 import commissionEntriesRoutes from '../modules/commissions/commissionEntries.routes';
+import commissionQuotesRoutes from '../modules/commissionQuotes/commissionQuotes.routes';
 import agentsRoutes from '../modules/agents/agents.routes';
 import accountingRoutes from '../modules/accounting/accounting.routes';
 
@@ -31,6 +32,9 @@ import workflowsRoutes from '../modules/workflows/workflows.routes';
 import documentsRoutes from '../modules/documents/documents.routes';
 import executiveRoutes from '../modules/executive/executive.routes';
 import searchRoutes from '../modules/search/search.routes';
+import dashboardsRoutes from '../modules/dashboards/dashboards.routes';
+import agentPortalRoutes from '../modules/agent-portal/agentPortal.routes';
+import agentCommissionRoutes from '../modules/agent-commission/agentCommission.routes';
 
 const router = Router();
 
@@ -53,6 +57,7 @@ router.use('/insurers', insurersRoutes);
 router.use('/products', productsRoutes);
 router.use('/commission-rules', commissionsRoutes);
 router.use('/commissions', commissionEntriesRoutes);
+router.use('/commission-quotes', commissionQuotesRoutes);
 
 // Policy routes
 router.use('/policies', policiesRoutes);
@@ -67,5 +72,10 @@ router.use('/workflows', workflowsRoutes);
 router.use('/documents', documentsRoutes);
 router.use('/executive', executiveRoutes);
 router.use('/search', searchRoutes);
+router.use('/dashboards', dashboardsRoutes);
+
+// Agent portal & internal agent commissions
+router.use('/agent', agentPortalRoutes);
+router.use('/admin', agentCommissionRoutes);
 
 export default router;

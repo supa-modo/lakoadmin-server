@@ -120,6 +120,10 @@ const PERMISSIONS = [
   { name: 'agents.create', module: 'agents', action: 'create', description: 'Create agents' },
   { name: 'agents.update', module: 'agents', action: 'update', description: 'Update agents' },
   { name: 'agents.delete', module: 'agents', action: 'delete', description: 'Delete agents' },
+  { name: 'agents.portal.read', module: 'agents', action: 'portal.read', description: 'Access the logged-in agent portal' },
+  { name: 'agents.portal.write', module: 'agents', action: 'portal.write', description: 'Create and update records in the agent portal' },
+  { name: 'agent.commissions.read', module: 'agents', action: 'commissions.read', description: 'View own agent commission earnings' },
+  { name: 'agent.commissions.manage', module: 'agents', action: 'commissions.manage', description: 'Manage agent commission rules and payouts' },
 
   // Commissions
   { name: 'commissions.read', module: 'commissions', action: 'read', description: 'View commissions' },
@@ -131,6 +135,15 @@ const PERMISSIONS = [
   { name: 'commissions.hold', module: 'commissions', action: 'hold', description: 'Hold commissions' },
   { name: 'commissions.clawback', module: 'commissions', action: 'clawback', description: 'Create commission clawbacks' },
   { name: 'commissions.statement', module: 'commissions', action: 'statement', description: 'Generate agent commission statements' },
+  { name: 'commissions.quotes.read', module: 'commissions', action: 'quotes.read', description: 'View commission quotes' },
+  { name: 'commissions.quotes.create', module: 'commissions', action: 'quotes.create', description: 'Create commission quotes' },
+  { name: 'commissions.quotes.update', module: 'commissions', action: 'quotes.update', description: 'Update commission quotes' },
+  { name: 'commissions.quotes.reconcile', module: 'commissions', action: 'quotes.reconcile', description: 'Reconcile commission quotes with insurer statements' },
+  { name: 'commissions.invoices.create', module: 'commissions', action: 'invoices.create', description: 'Create commission invoices' },
+  { name: 'commissions.invoices.read', module: 'commissions', action: 'invoices.read', description: 'View commission invoices' },
+  { name: 'commissions.payments.record', module: 'commissions', action: 'payments.record', description: 'Record commission payments from insurers' },
+  { name: 'commissions.statements.upload', module: 'commissions', action: 'statements.upload', description: 'Upload insurer commission statements' },
+  { name: 'commissions.statements.match', module: 'commissions', action: 'statements.match', description: 'Match insurer statements to commission quotes' },
 
   // Accounting
   { name: 'accounting.read', module: 'accounting', action: 'read', description: 'View accounting records' },
@@ -170,6 +183,9 @@ const PERMISSIONS = [
 
   // Executive
   { name: 'executive.dashboard.read', module: 'executive', action: 'dashboard.read', description: 'View director executive command center' },
+
+  // Staff Dashboards
+  { name: 'dashboards.read', module: 'dashboards', action: 'read', description: 'View role-based operational staff dashboards' },
 
   // Settings
   { name: 'settings.read', module: 'settings', action: 'read', description: 'View settings' },
@@ -354,7 +370,10 @@ const ROLES: Record<string, {
       'documents.read', 'documents.create', 'documents.update',
       'communications.read', 'communications.send', 'communications.templates.read',
       'notifications.read',
-      'reports.read',
+      'agents.portal.read',
+      'agents.portal.write',
+      'agent.commissions.read',
+      'dashboards.read', 'reports.read',
     ],
   },
   RelationshipManager: {
@@ -374,7 +393,8 @@ const ROLES: Record<string, {
       'communications.read', 'communications.send', 'communications.schedule',
       'communications.templates.read', 'communications.logs.read',
       'notifications.read',
-      'reports.read',
+      'agents.portal.read',
+      'dashboards.read', 'reports.read',
     ],
   },
   ClaimsOfficer: {
@@ -392,7 +412,7 @@ const ROLES: Record<string, {
       'documents.read', 'documents.create',
       'communications.read', 'communications.send', 'communications.templates.read',
       'communications.logs.read', 'notifications.read',
-      'reports.read',
+      'dashboards.read', 'reports.read',
     ],
   },
   Accountant: {
@@ -413,7 +433,7 @@ const ROLES: Record<string, {
       'commissions.read', 'commissions.calculate',
       'communications.read', 'communications.send', 'communications.templates.read',
       'communications.logs.read', 'notifications.read',
-      'reports.read', 'reports.export',
+      'dashboards.read', 'reports.read', 'reports.export',
       'documents.read', 'documents.create',
     ],
   },
@@ -440,11 +460,12 @@ const ROLES: Record<string, {
       'accounting.reports.read', 'accounting.settings.manage',
       'commissions.read', 'commissions.calculate', 'commissions.override', 'commissions.approve', 'commissions.pay', 'commissions.hold',
       'commissions.clawback', 'commissions.statement',
+      'agent.commissions.manage',
       'executive.dashboard.read',
       'communications.read', 'communications.send', 'communications.send_bulk', 'communications.schedule',
       'communications.templates.read', 'communications.campaigns.read', 'communications.logs.read',
       'notifications.read', 'notifications.manage',
-      'reports.read', 'reports.export',
+      'dashboards.read', 'reports.read', 'reports.export',
       'documents.read', 'documents.create', 'documents.update', 'documents.verify',
     ],
   },
@@ -466,7 +487,7 @@ const ROLES: Record<string, {
       'agents.read',
       'commissions.read',
       'executive.dashboard.read',
-      'reports.read', 'reports.export',
+      'dashboards.read', 'reports.read', 'reports.export',
       'documents.read', 'documents.create', 'documents.update', 'documents.verify', 'documents.requirements.manage',
       'settings.read',
       'communications.read', 'communications.send', 'communications.send_bulk', 'communications.schedule',
@@ -486,6 +507,7 @@ const ROLES: Record<string, {
       'payments.read',
       'documents.read',
       'communications.read', 'communications.logs.read', 'notifications.read',
+      'dashboards.read',
     ],
   },
   Auditor: {
@@ -504,7 +526,7 @@ const ROLES: Record<string, {
       'executive.dashboard.read',
       'communications.read', 'communications.templates.read', 'communications.campaigns.read',
       'communications.logs.read', 'notifications.read',
-      'reports.read', 'reports.export',
+      'dashboards.read', 'reports.read', 'reports.export',
       'documents.read',
     ],
   },
