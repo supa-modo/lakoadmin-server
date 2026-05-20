@@ -2,13 +2,15 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database';
 
 export async function listEntityCommunications(entityType: string, entityId: string) {
+  const normalizedEntityType = entityType.toLowerCase();
   const where: Prisma.MessageLogWhereInput = {
     OR: [
       { relatedEntityType: entityType, relatedEntityId: entityId },
+      { relatedEntityType: normalizedEntityType, relatedEntityId: entityId },
     ],
   };
 
-  switch (entityType.toLowerCase()) {
+  switch (normalizedEntityType) {
     case 'client':
       where.OR?.push({ clientId: entityId });
       break;
@@ -20,6 +22,8 @@ export async function listEntityCommunications(entityType: string, entityId: str
       break;
     case 'task':
       where.OR?.push({ taskId: entityId });
+      break;
+    case 'lead':
       break;
     case 'onboarding':
     case 'onboardingcase':

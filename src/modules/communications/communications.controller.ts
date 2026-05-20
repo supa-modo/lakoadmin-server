@@ -4,6 +4,7 @@ import { AuthRequest } from '../../types/express';
 import { logAudit } from '../../services/auditService';
 import {
   createMessage,
+  createLoggedMessage,
   communicationStats,
   getMessageLog,
   listMessageLogs,
@@ -96,6 +97,21 @@ export async function sendMessageHandler(req: AuthRequest, res: Response, next: 
       relatedEntityId: req.body.relatedEntityId,
     });
     sendCreated(res, message, req.body.scheduledAt ? 'Message scheduled' : 'Message queued');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function logMessageHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const message = await createLoggedMessage(req.body, req.user?.id);
+    logAudit(req, 'LOG_COMMUNICATION', 'MessageLog', message.id, null, {
+      channel: req.body.channel,
+      recipientCount: message.recipients?.length ?? 0,
+      relatedEntityType: req.body.relatedEntityType,
+      relatedEntityId: req.body.relatedEntityId,
+    });
+    sendCreated(res, message, 'Communication logged');
   } catch (error) {
     next(error);
   }

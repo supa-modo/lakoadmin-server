@@ -26,7 +26,7 @@ export async function getTasks(req: AuthRequest, res: Response, next: NextFuncti
 
 export async function getTask(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const task = await getTaskById(req.params.id);
+    const task = await getTaskById(req.params.id, req.user!.id);
     sendSuccess(res, task);
   } catch (err) {
     if ((err as Error).message === 'Task not found') {
@@ -49,12 +49,14 @@ export async function createTaskHandler(req: AuthRequest, res: Response, next: N
 
 export async function updateTaskHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const task = await updateTask(req.params.id, req.body);
+    const task = await updateTask(req.params.id, req.body, req.user!.id);
     logAudit(req, 'UPDATE', 'Task', task.id, null, req.body);
     sendSuccess(res, task, 'Task updated successfully');
   } catch (err) {
     if ((err as Error).message === 'Task not found') {
       sendError(res, 'Task not found', 404);
+    } else if ((err as Error).message === 'Authentication required') {
+      sendError(res, 'Authentication required', 401);
     } else {
       next(err);
     }
@@ -71,6 +73,8 @@ export async function completeTaskHandler(req: AuthRequest, res: Response, next:
       sendError(res, 'Task not found', 404);
     } else if ((err as Error).message === 'Task is already completed') {
       sendError(res, 'Task is already completed', 400);
+    } else if ((err as Error).message === 'Authentication required') {
+      sendError(res, 'Authentication required', 401);
     } else {
       next(err);
     }
@@ -87,6 +91,8 @@ export async function reopenTaskHandler(req: AuthRequest, res: Response, next: N
       sendError(res, 'Task not found', 404);
     } else if ((err as Error).message === 'Task is not completed') {
       sendError(res, 'Task is not completed', 400);
+    } else if ((err as Error).message === 'Authentication required') {
+      sendError(res, 'Authentication required', 401);
     } else {
       next(err);
     }
@@ -95,7 +101,7 @@ export async function reopenTaskHandler(req: AuthRequest, res: Response, next: N
 
 export async function getTaskActivitiesHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const activities = await listTaskActivities(req.params.id);
+    const activities = await listTaskActivities(req.params.id, req.user!.id);
     sendSuccess(res, activities);
   } catch (err) {
     if ((err as Error).message === 'Task not found') {
@@ -122,12 +128,14 @@ export async function createTaskActivityHandler(req: AuthRequest, res: Response,
 
 export async function deleteTaskHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    await deleteTask(req.params.id);
+    await deleteTask(req.params.id, req.user!.id);
     logAudit(req, 'DELETE', 'Task', req.params.id);
     sendSuccess(res, null, 'Task deleted successfully');
   } catch (err) {
     if ((err as Error).message === 'Task not found') {
       sendError(res, 'Task not found', 404);
+    } else if ((err as Error).message === 'Only the task creator can delete this task') {
+      sendError(res, 'Only the task creator can delete this task', 403);
     } else {
       next(err);
     }

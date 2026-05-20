@@ -300,6 +300,53 @@ function statusToStage(status: LeadStatus | undefined): string | undefined {
   return status;
 }
 
+async function ensureAgentLeadFollowUpTask(args: {
+  leadId: string;
+  leadName: string;
+  followUpDate?: Date | null;
+  agentId?: string | null;
+  assignedToId: string;
+  createdById: string;
+}) {
+  if (!args.followUpDate) return;
+
+  const existingTask = await prisma.task.findFirst({
+    where: {
+      leadId: args.leadId,
+      assignedToId: args.assignedToId,
+      dueDate: args.followUpDate,
+      category: 'LEAD_FOLLOW_UP',
+      status: { notIn: ['COMPLETED', 'CANCELLED'] },
+    },
+    select: { id: true },
+  });
+  if (existingTask) return;
+
+  const task = await prisma.task.create({
+    data: {
+      title: `Follow up with ${args.leadName}`,
+      description: `Automatic follow-up task created from the lead's next follow-up date.`,
+      category: 'LEAD_FOLLOW_UP',
+      dueDate: args.followUpDate,
+      priority: 'NORMAL',
+      status: 'PENDING',
+      leadId: args.leadId,
+      agentId: args.agentId ?? null,
+      assignedToId: args.assignedToId,
+      createdById: args.createdById,
+    },
+  });
+
+  await prisma.taskActivity.create({
+    data: {
+      taskId: task.id,
+      type: 'CREATED',
+      description: `Follow-up task created for lead ${args.leadName}`,
+      createdById: args.createdById,
+    },
+  });
+}
+
 export async function getAgentDashboard(agent: Agent, userId: string) {
   const now = new Date();
   const todayStart = startOfDay(now);
@@ -897,7 +944,7 @@ export async function createAgentLead(
   const name = leadName(data);
   if (!name) throw new Error('Lead name is required');
 
-  return prisma.lead.create({
+  const lead = await prisma.lead.create({
     data: {
       name,
       email: data.email ?? null,
@@ -920,6 +967,17 @@ export async function createAgentLead(
       createdById: userId,
     },
   });
+
+  await ensureAgentLeadFollowUpTask({
+    leadId: lead.id,
+    leadName: lead.name,
+    followUpDate: lead.nextFollowUp,
+    agentId: agent.id,
+    assignedToId: userId,
+    createdById: userId,
+  });
+
+  return lead;
 }
 
 export async function updateAgentLead(
@@ -932,7 +990,7 @@ export async function updateAgentLead(
   if (!existing) throw new Error('Lead not found');
   if (existing.convertedToClientId) throw new Error('Converted leads cannot be edited');
 
-  return prisma.lead.update({
+  const lead = await prisma.lead.update({
     where: { id: leadId },
     data: {
       ...(data.name !== undefined && { name: data.name }),
@@ -959,6 +1017,23 @@ export async function updateAgentLead(
       ...(data.status === 'LOST' && { lostAt: new Date() }),
     },
   });
+
+  if (
+    data.nextFollowUp !== undefined &&
+    lead.nextFollowUp &&
+    (!existing.nextFollowUp || existing.nextFollowUp.getTime() !== lead.nextFollowUp.getTime())
+  ) {
+    await ensureAgentLeadFollowUpTask({
+      leadId: lead.id,
+      leadName: lead.name,
+      followUpDate: lead.nextFollowUp,
+      agentId: agent.id,
+      assignedToId: userId,
+      createdById: userId,
+    });
+  }
+
+  return lead;
 }
 
 export async function listLeadCommunications(agent: Agent, userId: string, leadId: string) {

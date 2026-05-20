@@ -9,6 +9,7 @@ import {
   campaignSchema,
   campaignUpdateSchema,
   listQuerySchema,
+  logMessageSchema,
   preferenceUpdateSchema,
   previewTemplateSchema,
   recipientSearchSchema,
@@ -27,7 +28,9 @@ import {
   campaignsSend,
   campaignsShow,
   campaignsUpdate,
+  entityCommunicationsHandler,
   logsIndex,
+  logMessageHandler,
   logsRetry,
   logsShow,
   preferencesShow,
@@ -58,10 +61,12 @@ router.delete('/templates/:id', requirePermission('communications.templates.dele
 router.post('/templates/:id/preview', requirePermission('communications.templates.read'), validate(previewTemplateSchema), templatesPreview);
 
 router.post('/send', requirePermission('communications.send'), validate(sendMessageSchema), sendMessageHandler);
+router.post('/log', requirePermission('communications.send'), validate(logMessageSchema), logMessageHandler);
 router.post('/send-bulk', requirePermission('communications.send_bulk'), validate(bulkMessageSchema), sendBulkHandler);
 router.post('/schedule', requirePermission('communications.schedule'), validate(sendMessageSchema), sendMessageHandler);
 
 router.get('/logs', requirePermission('communications.logs.read'), validate(listQuerySchema, 'query'), logsIndex);
+router.get('/entity/:entityType/:entityId', requirePermission('communications.read'), entityCommunicationsHandler);
 router.get('/logs/:id', requirePermission('communications.logs.read'), logsShow);
 router.post('/logs/:id/retry', requirePermission('communications.send'), logsRetry);
 

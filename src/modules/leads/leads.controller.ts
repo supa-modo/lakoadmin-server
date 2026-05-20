@@ -71,7 +71,7 @@ export async function createLeadHandler(req: AuthRequest, res: Response, next: N
 
 export async function updateLeadHandler(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const lead = await updateLead(req.params.id, req.body);
+    const lead = await updateLead(req.params.id, req.body, req.user?.id);
     logAudit(req, 'UPDATE', 'Lead', lead.id, null, req.body);
     sendSuccess(res, lead, 'Lead updated successfully');
   } catch (err) {

@@ -39,6 +39,37 @@ async function preferenceAllows(recipient: ResolvedRecipient, channel: string, c
   return true;
 }
 
+async function includeSenderEmailCopy(
+  recipients: ResolvedRecipient[],
+  channel: string,
+  createdById?: string,
+) {
+  if (channel !== 'EMAIL' || !createdById) return recipients;
+
+  const sender = await prisma.user.findFirst({
+    where: { id: createdById, isActive: true, deletedAt: null },
+    select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+  });
+  if (!sender?.email) return recipients;
+
+  const senderEmail = sender.email.trim().toLowerCase();
+  const alreadyIncluded = recipients.some(
+    (recipient) => recipient.email?.trim().toLowerCase() === senderEmail,
+  );
+  if (alreadyIncluded) return recipients;
+
+  return [
+    ...recipients,
+    {
+      recipientType: 'USER',
+      userId: sender.id,
+      recipientName: `${sender.firstName ?? ''} ${sender.lastName ?? ''}`.trim() || sender.email,
+      email: sender.email,
+      phone: sender.phone,
+    } satisfies ResolvedRecipient,
+  ];
+}
+
 async function queueOrDeliver(messageLogId: string, scheduledAt?: Date | null) {
   if (scheduledAt && scheduledAt > new Date()) {
     const delay = scheduledAt.getTime() - Date.now();
@@ -70,7 +101,11 @@ export async function createMessage(input: any, createdById?: string) {
     body = mergeTemplate(body, variables) ?? body;
   }
 
-  const recipients = await resolveRecipients(input.recipients, input.channel);
+  const recipients = await includeSenderEmailCopy(
+    await resolveRecipients(input.recipients, input.channel),
+    input.channel,
+    createdById,
+  );
   const allowedRecipients: ResolvedRecipient[] = [];
   const skippedRecipients: ResolvedRecipient[] = [];
   for (const recipient of recipients) {
@@ -148,6 +183,54 @@ export async function createMessage(input: any, createdById?: string) {
   });
 }
 
+export async function createLoggedMessage(input: any, createdById?: string) {
+  const recipients = await resolveRecipients(input.recipients, input.channel);
+  if (recipients.length === 0) {
+    throw new Error('No valid recipients to log');
+  }
+
+  const occurredAt = input.occurredAt ?? new Date();
+
+  return prisma.messageLog.create({
+    data: {
+      channel: input.channel,
+      direction: input.direction ?? 'OUTBOUND',
+      messageType: input.messageType ?? 'MANUAL_LOG',
+      subject: input.subject ?? null,
+      body: input.body,
+      status: MessageStatus.SENT,
+      priority: input.priority ?? 'NORMAL',
+      sentAt: occurredAt,
+      createdById,
+      relatedEntityType: input.relatedEntityType ?? null,
+      relatedEntityId: input.relatedEntityId ?? null,
+      clientId: input.clientId ?? null,
+      policyId: input.policyId ?? null,
+      claimId: input.claimId ?? null,
+      taskId: input.taskId ?? null,
+      onboardingCaseId: input.onboardingCaseId ?? null,
+      paymentId: input.paymentId ?? null,
+      userId: input.userId ?? null,
+      metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+      recipients: {
+        create: recipients.map((recipient) => ({
+          recipientType: recipient.recipientType,
+          recipientName: recipient.recipientName ?? null,
+          email: recipient.email ?? null,
+          phone: recipient.phone ?? null,
+          clientId: recipient.clientId ?? null,
+          userId: recipient.userId ?? null,
+          agentId: recipient.agentId ?? null,
+          contactPersonId: recipient.contactPersonId ?? null,
+          status: MessageStatus.SENT,
+          sentAt: occurredAt,
+        })),
+      },
+    },
+    include: { recipients: true, template: true, campaign: true },
+  });
+}
+
 export async function listMessageLogs(query: {
   page: number;
   limit: number;
@@ -172,8 +255,10 @@ export async function listMessageLogs(query: {
   if (query.status) where.status = query.status as any;
   if (query.category) where.template = { category: query.category as any };
   if (query.entityType && query.entityId) {
-    where.relatedEntityType = query.entityType;
-    where.relatedEntityId = query.entityId;
+    where.OR = [
+      { relatedEntityType: query.entityType, relatedEntityId: query.entityId },
+      { relatedEntityType: query.entityType.toLowerCase(), relatedEntityId: query.entityId },
+    ];
   }
 
   const skip = (query.page - 1) * query.limit;

@@ -126,9 +126,17 @@ export const updateLeadDependentSchema = leadDependentSchema.partial();
 
 export const createLeadCommunicationSchema = z.object({
   channel: z.enum(['EMAIL', 'PHONE', 'SMS', 'WHATSAPP', 'MEETING', 'OTHER']),
+  communicationType: z.enum(['CALL', 'SMS', 'EMAIL', 'WHATSAPP', 'MEETING', 'NOTE']).optional(),
   direction: z.enum(['INBOUND', 'OUTBOUND']),
   subject: z.string().optional().nullable(),
   body: z.string().optional().nullable(),
+  message: z.string().optional().nullable(),
+  outcome: z.string().optional().nullable(),
+  followUpRequired: z.boolean().optional(),
+  followUpDate: z.string().datetime().optional().nullable(),
+  createTask: z.boolean().optional(),
+  taskTitle: z.string().optional().nullable(),
+  agentId: optionalUuidNullable,
   occurredAt: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}/)),
 });
 

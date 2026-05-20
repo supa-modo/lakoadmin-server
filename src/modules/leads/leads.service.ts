@@ -13,6 +13,83 @@ interface GroupedLeadsResult {
   [key: string]: Lead[];
 }
 
+type LeadWithFollowUpFields = Pick<Lead, 'id' | 'name' | 'nextFollowUp' | 'assignedToId' | 'agentId'>;
+
+function statusToStage(status: LeadStatus): string {
+  return status;
+}
+
+async function getLinkedAgentId(userId?: string | null): Promise<string | null> {
+  if (!userId) return null;
+  const agent = await prisma.agent.findFirst({
+    where: {
+      userId,
+      deletedAt: null,
+      status: { not: 'TERMINATED' },
+    },
+    select: { id: true },
+  });
+  return agent?.id ?? null;
+}
+
+async function ensureLeadFollowUpTask(
+  lead: LeadWithFollowUpFields,
+  createdById?: string,
+): Promise<void> {
+  if (!lead.nextFollowUp || !lead.assignedToId) return;
+
+  const existingTask = await prisma.task.findFirst({
+    where: {
+      leadId: lead.id,
+      assignedToId: lead.assignedToId,
+      dueDate: lead.nextFollowUp,
+      category: 'LEAD_FOLLOW_UP',
+      status: { notIn: ['COMPLETED', 'CANCELLED'] },
+    },
+    select: { id: true },
+  });
+
+  if (existingTask) return;
+
+  const task = await prisma.task.create({
+    data: {
+      title: `Follow up with ${lead.name}`,
+      description: `Automatic follow-up task created from the lead's next follow-up date.`,
+      category: 'LEAD_FOLLOW_UP',
+      dueDate: lead.nextFollowUp,
+      priority: 'NORMAL',
+      status: 'PENDING',
+      leadId: lead.id,
+      agentId: lead.agentId ?? null,
+      assignedToId: lead.assignedToId,
+      createdById,
+    },
+  });
+
+  await prisma.taskActivity.create({
+    data: {
+      taskId: task.id,
+      type: 'CREATED',
+      description: `Follow-up task created for lead ${lead.name}`,
+      createdById,
+    },
+  });
+
+  await prisma.leadActivity.create({
+    data: {
+      leadId: lead.id,
+      type: 'FOLLOW_UP_TASK_CREATED',
+      description: `Follow-up task created for ${lead.nextFollowUp.toISOString()}`,
+      userId: createdById,
+      metadata: {
+        taskId: task.id,
+        dueDate: lead.nextFollowUp.toISOString(),
+        assignedToId: lead.assignedToId,
+      },
+    },
+  });
+}
+
 export async function listLeads(req: AuthRequest): Promise<ListLeadsResult | GroupedLeadsResult> {
   const query = req.query as {
     page?: string | number;
@@ -72,6 +149,15 @@ export async function listLeads(req: AuthRequest): Promise<ListLeadsResult | Gro
             lastName: true,
           },
         },
+        agent: {
+          select: {
+            id: true,
+            agentNumber: true,
+            firstName: true,
+            lastName: true,
+            companyName: true,
+          },
+        },
       },
       orderBy: {
         createdAt: 'desc',
@@ -117,6 +203,15 @@ export async function listLeads(req: AuthRequest): Promise<ListLeadsResult | Gro
             lastName: true,
           },
         },
+        agent: {
+          select: {
+            id: true,
+            agentNumber: true,
+            firstName: true,
+            lastName: true,
+            companyName: true,
+          },
+        },
       },
       skip,
       take: limit,
@@ -154,6 +249,15 @@ export async function getLeadById(id: string): Promise<Lead> {
           lastName: true,
         },
       },
+      agent: {
+        select: {
+          id: true,
+          agentNumber: true,
+          firstName: true,
+          lastName: true,
+          companyName: true,
+        },
+      },
       activities: {
         orderBy: {
           createdAt: 'desc',
@@ -183,6 +287,34 @@ export async function getLeadById(id: string): Promise<Lead> {
       dependents: {
         where: { deletedAt: null },
         orderBy: { createdAt: 'asc' },
+      },
+      proposals: {
+        orderBy: { createdAt: 'desc' },
+        include: {
+          product: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+            },
+          },
+          insurer: {
+            select: {
+              id: true,
+              name: true,
+              shortName: true,
+            },
+          },
+          agent: {
+            select: {
+              id: true,
+              agentNumber: true,
+              firstName: true,
+              lastName: true,
+              companyName: true,
+            },
+          },
+        },
       },
       communications: {
         orderBy: { occurredAt: 'desc' },
@@ -225,9 +357,13 @@ export async function createLead(data: any, createdById?: string): Promise<Lead>
     data.nextFollowUp = new Date(data.nextFollowUp);
   }
 
+  const linkedAgentId = await getLinkedAgentId(data.assignedToId);
+
   const lead = await prisma.lead.create({
     data: {
       ...data,
+      ...(linkedAgentId && { agentId: linkedAgentId }),
+      ...(data.status && !data.stage && { stage: statusToStage(data.status) }),
       createdById,
     },
     include: {
@@ -239,13 +375,24 @@ export async function createLead(data: any, createdById?: string): Promise<Lead>
           email: true,
         },
       },
+      agent: {
+        select: {
+          id: true,
+          agentNumber: true,
+          firstName: true,
+          lastName: true,
+          companyName: true,
+        },
+      },
     },
   });
+
+  await ensureLeadFollowUpTask(lead, createdById);
 
   return lead;
 }
 
-export async function updateLead(id: string, data: any): Promise<Lead> {
+export async function updateLead(id: string, data: any, updatedById?: string): Promise<Lead> {
   const existing = await prisma.lead.findUnique({
     where: { id },
   });
@@ -258,9 +405,16 @@ export async function updateLead(id: string, data: any): Promise<Lead> {
     data.nextFollowUp = new Date(data.nextFollowUp);
   }
 
+  const linkedAgentId =
+    data.assignedToId !== undefined ? await getLinkedAgentId(data.assignedToId) : null;
+
   const lead = await prisma.lead.update({
     where: { id },
-    data,
+    data: {
+      ...data,
+      ...(linkedAgentId && { agentId: linkedAgentId }),
+      ...(data.status && !data.stage && { stage: statusToStage(data.status) }),
+    },
     include: {
       assignedTo: {
         select: {
@@ -270,8 +424,27 @@ export async function updateLead(id: string, data: any): Promise<Lead> {
           email: true,
         },
       },
+      agent: {
+        select: {
+          id: true,
+          agentNumber: true,
+          firstName: true,
+          lastName: true,
+          companyName: true,
+        },
+      },
     },
   });
+
+  const followUpWasSet =
+    data.nextFollowUp instanceof Date &&
+    (!existing.nextFollowUp ||
+      existing.nextFollowUp.getTime() !== data.nextFollowUp.getTime() ||
+      existing.assignedToId !== lead.assignedToId);
+
+  if (followUpWasSet) {
+    await ensureLeadFollowUpTask(lead, updatedById);
+  }
 
   return lead;
 }
@@ -314,10 +487,15 @@ export async function assignLead(
     throw new Error('User not found');
   }
 
+  const linkedAgentId = await getLinkedAgentId(assignedToId);
+
   const lead = await prisma.lead.update({
     where: { id },
     data: {
       assignedToId,
+      ...(linkedAgentId && { agentId: linkedAgentId }),
+      assignedByUserId: assignedBy,
+      assignedAt: new Date(),
     },
     include: {
       assignedTo: {
@@ -326,6 +504,15 @@ export async function assignLead(
           firstName: true,
           lastName: true,
           email: true,
+        },
+      },
+      agent: {
+        select: {
+          id: true,
+          agentNumber: true,
+          firstName: true,
+          lastName: true,
+          companyName: true,
         },
       },
     },
@@ -343,6 +530,8 @@ export async function assignLead(
       },
     },
   });
+
+  await ensureLeadFollowUpTask(lead, assignedBy);
 
   return lead;
 }
@@ -363,6 +552,7 @@ export async function updateLeadStatus(
 
   const updateData: any = {
     status,
+    stage: statusToStage(status),
   };
 
   if (status === 'LOST') {
@@ -382,6 +572,15 @@ export async function updateLeadStatus(
           firstName: true,
           lastName: true,
           email: true,
+        },
+      },
+      agent: {
+        select: {
+          id: true,
+          agentNumber: true,
+          firstName: true,
+          lastName: true,
+          companyName: true,
         },
       },
     },
@@ -687,21 +886,53 @@ export async function createLeadCommunication(
   data: Record<string, unknown>,
   userId?: string,
 ) {
-  await assertLeadEditable(leadId);
+  const lead = await assertLeadEditable(leadId);
+  const followUpDate = data.followUpDate ? new Date(String(data.followUpDate)) : null;
+  const body = ((data.body as string | null | undefined) ?? (data.message as string | null | undefined)) ?? null;
+  const communicationType =
+    (data.communicationType as string | undefined) ??
+    (String(data.channel) === 'PHONE' ? 'CALL' : String(data.channel) === 'OTHER' ? 'NOTE' : String(data.channel));
+
   const communication = await prisma.leadCommunication.create({
     data: {
       leadId,
+      agentId: (data.agentId as string | null | undefined) ?? lead.agentId ?? null,
+      communicationType: communicationType as any,
       channel: String(data.channel),
       direction: data.direction as 'INBOUND' | 'OUTBOUND',
       subject: (data.subject as string | null | undefined) ?? null,
-      body: (data.body as string | null | undefined) ?? null,
-      occurredAt: new Date(String(data.occurredAt)),
+      body,
+      message: body,
+      outcome: (data.outcome as string | null | undefined) ?? null,
+      followUpRequired: Boolean(data.followUpRequired),
+      followUpDate,
+      occurredAt: data.occurredAt ? new Date(String(data.occurredAt)) : new Date(),
       createdById: userId ?? null,
     },
     include: {
       createdBy: { select: { id: true, firstName: true, lastName: true } },
     },
   });
+
+  if (data.followUpRequired && followUpDate) {
+    await prisma.lead.update({
+      where: { id: leadId },
+      data: { nextFollowUp: followUpDate },
+    });
+  }
+
+  if (data.createTask && followUpDate) {
+    await ensureLeadFollowUpTask(
+      {
+        id: lead.id,
+        name: lead.name,
+        nextFollowUp: followUpDate,
+        assignedToId: lead.assignedToId ?? userId ?? null,
+        agentId: lead.agentId,
+      },
+      userId,
+    );
+  }
 
   await prisma.leadActivity.create({
     data: {

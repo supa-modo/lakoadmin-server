@@ -72,6 +72,8 @@ const SOURCE_PERMISSIONS: Record<SearchEntity, string> = {
 
 const MAX_LIMIT = 10;
 
+type Searcher = (query: string, limit: number, user: AuthUser) => Promise<UniversalSearchGroup>;
+
 function can(user: AuthUser, permission: string): boolean {
   return user.permissions.includes(permission);
 }
@@ -412,16 +414,21 @@ async function searchAgents(query: string, limit: number): Promise<UniversalSear
   };
 }
 
-async function searchTasks(query: string, limit: number): Promise<UniversalSearchGroup> {
+async function searchTasks(query: string, limit: number, user: AuthUser): Promise<UniversalSearchGroup> {
   const rows = await prisma.task.findMany({
     where: {
-      OR: [
-        { title: contains(query) },
-        { description: contains(query) },
-        { category: contains(query) },
-        { client: { OR: [{ clientNumber: contains(query) }, { firstName: contains(query) }, { lastName: contains(query) }, { companyName: contains(query) }] } },
-        { policy: { policyNumber: contains(query) } },
-        { claim: { claimNumber: contains(query) } },
+      AND: [
+        { OR: [{ createdById: user.id }, { assignedToId: user.id }] },
+        {
+          OR: [
+            { title: contains(query) },
+            { description: contains(query) },
+            { category: contains(query) },
+            { client: { OR: [{ clientNumber: contains(query) }, { firstName: contains(query) }, { lastName: contains(query) }, { companyName: contains(query) }] } },
+            { policy: { policyNumber: contains(query) } },
+            { claim: { claimNumber: contains(query) } },
+          ],
+        },
       ],
     },
     orderBy: { updatedAt: 'desc' },
@@ -486,7 +493,7 @@ async function searchPayments(query: string, limit: number): Promise<UniversalSe
   };
 }
 
-const SEARCHERS: Record<SearchEntity, (query: string, limit: number) => Promise<UniversalSearchGroup>> = {
+const SEARCHERS: Record<SearchEntity, Searcher> = {
   clients: searchClients,
   leads: searchLeads,
   policies: searchPolicies,
@@ -508,7 +515,7 @@ export async function universalSearch(user: AuthUser, query: string, requestedLi
   }
 
   const allowedSources = (Object.keys(SEARCHERS) as SearchEntity[]).filter((source) => can(user, SOURCE_PERMISSIONS[source]));
-  const settled = await Promise.allSettled(allowedSources.map((source) => SEARCHERS[source](normalized, limit)));
+  const settled = await Promise.allSettled(allowedSources.map((source) => SEARCHERS[source](normalized, limit, user)));
   const groups = settled
     .filter((result): result is PromiseFulfilledResult<UniversalSearchGroup> => result.status === 'fulfilled')
     .map((result) => result.value)

@@ -96,6 +96,18 @@ export const sendMessageSchema = z.object({
   sendNow: z.boolean().default(true),
 }).merge(entityLinkSchema);
 
+export const logMessageSchema = z.object({
+  channel: z.enum(['EMAIL', 'SMS']),
+  direction: z.enum(['INBOUND', 'OUTBOUND']).default('OUTBOUND'),
+  messageType: z.string().default('MANUAL_LOG'),
+  category: category.default('GENERAL'),
+  subject: z.string().optional().nullable(),
+  body: z.string().min(1),
+  recipients: z.array(recipientSchema).min(1),
+  occurredAt: z.coerce.date().optional(),
+  metadata: z.record(z.any()).optional(),
+}).merge(entityLinkSchema);
+
 export const bulkMessageSchema = z.object({
   name: z.string().min(3),
   description: z.string().min(8),
